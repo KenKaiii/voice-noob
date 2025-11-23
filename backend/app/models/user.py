@@ -28,14 +28,22 @@ class User(Base, TimestampMixin):
 
     # Relationships
     voice_agents: Mapped[list["VoiceAgent"]] = relationship(
-        "VoiceAgent", back_populates="user", cascade="all, delete-orphan",
+        "VoiceAgent",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
     integrations: Mapped[list["Integration"]] = relationship(
-        "Integration", back_populates="user", cascade="all, delete-orphan",
+        "Integration",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
     phone_numbers: Mapped[list["PhoneNumber"]] = relationship(
-        "PhoneNumber", back_populates="user", cascade="all, delete-orphan",
+        "PhoneNumber",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
     calls: Mapped[list["Call"]] = relationship(
-        "Call", back_populates="user", cascade="all, delete-orphan",
+        "Call",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )

@@ -20,14 +20,17 @@ class VoiceAgent(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Pricing tier configuration
     pricing_tier: Mapped[str] = mapped_column(
-        String(50), nullable=False,
+        String(50),
+        nullable=False,
     )  # budget, balanced, premium
 
     # Provider configuration (stored as JSON)
@@ -57,5 +60,7 @@ class VoiceAgent(Base, TimestampMixin):
     user: Mapped["User"] = relationship("User", back_populates="voice_agents")
     phone_number: Mapped["PhoneNumber"] = relationship("PhoneNumber", back_populates="voice_agent")
     calls: Mapped[list["Call"]] = relationship(
-        "Call", back_populates="voice_agent", cascade="all, delete-orphan",
+        "Call",
+        back_populates="voice_agent",
+        cascade="all, delete-orphan",
     )

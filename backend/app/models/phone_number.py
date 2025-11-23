@@ -20,7 +20,9 @@ class PhoneNumber(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
 
     # Phone number details
@@ -37,8 +39,12 @@ class PhoneNumber(Base, TimestampMixin):
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="phone_numbers")
     voice_agent: Mapped["VoiceAgent"] = relationship(
-        "VoiceAgent", back_populates="phone_number", uselist=False,
+        "VoiceAgent",
+        back_populates="phone_number",
+        uselist=False,
     )
     calls: Mapped[list["Call"]] = relationship(
-        "Call", back_populates="phone_number", cascade="all, delete-orphan",
+        "Call",
+        back_populates="phone_number",
+        cascade="all, delete-orphan",
     )

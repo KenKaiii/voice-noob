@@ -20,7 +20,9 @@ class Call(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     voice_agent_id: Mapped[int] = mapped_column(
         ForeignKey("voice_agents.id", ondelete="CASCADE"),
@@ -41,7 +43,9 @@ class Call(Base, TimestampMixin):
 
     # Call status and duration
     status: Mapped[str] = mapped_column(
-        String(50), nullable=False, index=True,
+        String(50),
+        nullable=False,
+        index=True,
     )  # initiated, ringing, in-progress, completed, failed
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
