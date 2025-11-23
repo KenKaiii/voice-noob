@@ -150,8 +150,6 @@ export default function NewAgentSimplifiedPage() {
                 </CardContent>
               </Card>
 
-              <TierComparison callsPerMonth={1000} avgMinutes={5} />
-
               <Card>
                 <CardHeader>
                   <CardTitle>Basic Information</CardTitle>
