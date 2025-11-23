@@ -42,8 +42,11 @@ export default function SettingsPage() {
     },
   });
 
-  function onSubmit(data: ApiKeysFormValues) {
-    console.error(data);
+  function onSubmit(_data: ApiKeysFormValues) {
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("Saving API keys settings (keys not logged for security)");
+    }
     // TODO: API call to save settings
   }
 

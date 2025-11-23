@@ -90,7 +90,10 @@ export default function NewAgentPage() {
   });
 
   function onSubmit(data: AgentFormValues) {
-    console.error(data);
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("Creating agent:", data.name);
+    }
     // TODO: API call to create agent
   }
 

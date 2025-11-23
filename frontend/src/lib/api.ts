@@ -28,9 +28,31 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // Log authentication failures
     if (error.response?.status === 401) {
+      console.error("Authentication failed - redirecting to login", {
+        endpoint: error.config?.url,
+        status: error.response.status,
+      });
       localStorage.removeItem("access_token");
       window.location.href = "/login";
+    } else if (error.response) {
+      // Log API errors with details
+      console.error("API error:", {
+        endpoint: error.config?.url,
+        method: error.config?.method?.toUpperCase(),
+        status: error.response.status,
+        message: error.response.data?.message ?? error.message,
+      });
+    } else if (error.request) {
+      // Log network errors
+      console.error("Network error - no response received:", {
+        endpoint: error.config?.url,
+        method: error.config?.method?.toUpperCase(),
+      });
+    } else {
+      // Log request setup errors
+      console.error("Request error:", error.message);
     }
     return Promise.reject(error);
   }

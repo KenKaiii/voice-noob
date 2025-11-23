@@ -75,10 +75,10 @@ export default function NewAgentSimplifiedPage() {
   );
 
   function onSubmit(data: AgentFormValues) {
-    console.error("Creating agent with tier config:", {
-      ...data,
-      tierConfig: selectedTier?.config,
-    });
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("Creating agent:", data.name, "with tier:", data.pricingTier);
+    }
     // TODO: API call to create agent
   }
 

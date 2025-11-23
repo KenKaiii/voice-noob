@@ -76,12 +76,20 @@ async def get_contact(
     db: AsyncSession = Depends(get_db),
 ) -> Contact:
     """Get a single contact by ID."""
-    result = await db.execute(select(Contact).where(Contact.id == contact_id))
-    contact = result.scalar_one_or_none()
-    if not contact:
-        from fastapi import HTTPException
+    from fastapi import HTTPException
 
+    try:
+        result = await db.execute(select(Contact).where(Contact.id == contact_id))
+        contact = result.scalar_one_or_none()
+    except Exception:
+        logger.exception("Failed to retrieve contact: %d", contact_id)
+        raise
+
+    if not contact:
+        logger.error("Contact not found: %d", contact_id)
         raise HTTPException(status_code=404, detail="Contact not found")
+
+    logger.info("Retrieved contact: %d", contact_id)
     return contact
 
 
@@ -93,22 +101,37 @@ async def create_contact(
     db: AsyncSession = Depends(get_db),
 ) -> Contact:
     """Create a new contact (simplified - normally would get user_id from auth)."""
-    contact = Contact(
-        user_id=1,  # TODO: Get from authenticated user
-        **contact_data.model_dump(),
-    )
-    db.add(contact)
-    await db.commit()
-    await db.refresh(contact)
-
-    # Invalidate CRM stats cache after creating a contact
     try:
-        invalidated = await cache_invalidate("crm:stats:*")
-        logger.info("Invalidated %d cache keys after contact creation", invalidated)
-    except Exception:
-        logger.exception("Failed to invalidate cache")
+        contact = Contact(
+            user_id=1,  # TODO: Get from authenticated user
+            **contact_data.model_dump(),
+        )
+        db.add(contact)
+        await db.commit()
+        await db.refresh(contact)
 
-    return contact
+        logger.info(
+            "Created contact: id=%d, user_id=%d, phone=%s",
+            contact.id,
+            contact.user_id,
+            contact.phone_number,
+        )
+
+        # Invalidate CRM stats cache after creating a contact
+        try:
+            invalidated = await cache_invalidate("crm:stats:*")
+            logger.debug("Invalidated %d cache keys after contact creation", invalidated)
+        except Exception:
+            logger.exception("Failed to invalidate cache after contact creation")
+
+        return contact
+    except Exception:
+        logger.exception(
+            "Failed to create contact: user_id=%d, phone=%s",
+            1,
+            contact_data.phone_number,
+        )
+        raise
 
 
 @router.get("/stats")
@@ -143,6 +166,6 @@ async def get_crm_stats(
 
     # Cache the results for 60 seconds
     await cache_set(cache_key, stats, ttl=60)
-    logger.info("Cached CRM stats: %s", stats)
+    logger.debug("Cached CRM stats")
 
     return stats

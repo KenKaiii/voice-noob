@@ -249,24 +249,33 @@ function IntegrationConfigForm({
 }) {
   const handleOAuthConnect = useCallback(() => {
     // TODO: Implement OAuth flow
-    console.error("Starting OAuth for", integration.id);
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("Starting OAuth for", integration.id);
+    }
     // window.location.href = `/api/integrations/${integration.id}/oauth`;
   }, [integration.id]);
 
   const handleApiKeySubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      const formData = new FormData(e.currentTarget);
-      const credentials = Object.fromEntries(formData.entries());
-      console.error("Saving credentials for", integration.id, credentials);
-      // TODO: API call to save credentials
+      // const formData = new FormData(e.currentTarget);
+      // const credentials = Object.fromEntries(formData.entries());
+      if (process.env.NODE_ENV === "development") {
+        // eslint-disable-next-line no-console
+        console.log("Saving credentials for", integration.id);
+      }
+      // TODO: API call to save credentials with formData
       onClose();
     },
     [integration.id, onClose]
   );
 
   const handleDisconnect = useCallback(() => {
-    console.error("Disconnecting", integration.id);
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("Disconnecting", integration.id);
+    }
     // TODO: API call to disconnect
     onClose();
   }, [integration.id, onClose]);

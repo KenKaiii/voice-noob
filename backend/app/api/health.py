@@ -1,5 +1,7 @@
 """Health check endpoints."""
 
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.redis import get_redis
 from app.db.session import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -29,6 +33,7 @@ async def health_check_db(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
         result.scalar()
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
+        logger.exception("Database health check failed")
         return {"status": "unhealthy", "database": str(e)}
 
 
@@ -40,4 +45,5 @@ async def health_check_redis() -> dict[str, str]:
         await redis.ping()
         return {"status": "healthy", "redis": "connected"}
     except Exception as e:
+        logger.exception("Redis health check failed")
         return {"status": "unhealthy", "redis": str(e)}
