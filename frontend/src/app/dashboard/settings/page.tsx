@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -17,6 +18,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { integrationApi } from "@/lib/api-client";
+import { useToast } from "@/hooks/use-toast";
 
 const apiKeysSchema = z.object({
   openaiApiKey: z.string().optional(),
@@ -30,6 +33,9 @@ const apiKeysSchema = z.object({
 type ApiKeysFormValues = z.infer<typeof apiKeysSchema>;
 
 export default function SettingsPage() {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
+
   const form = useForm<ApiKeysFormValues>({
     resolver: zodResolver(apiKeysSchema),
     defaultValues: {
@@ -42,9 +48,73 @@ export default function SettingsPage() {
     },
   });
 
-  function onSubmit(data: ApiKeysFormValues) {
-    console.error(data);
-    // TODO: API call to save settings
+  async function onSubmit(data: ApiKeysFormValues) {
+    setIsSubmitting(true);
+
+    try {
+      const integrations = [];
+
+      if (data.openaiApiKey) {
+        integrations.push({
+          integration_type: "openai",
+          name: "OpenAI",
+          api_key: data.openaiApiKey,
+        });
+      }
+
+      if (data.deepgramApiKey) {
+        integrations.push({
+          integration_type: "deepgram",
+          name: "Deepgram",
+          api_key: data.deepgramApiKey,
+        });
+      }
+
+      if (data.elevenLabsApiKey) {
+        integrations.push({
+          integration_type: "elevenlabs",
+          name: "ElevenLabs",
+          api_key: data.elevenLabsApiKey,
+        });
+      }
+
+      if (data.telnyxApiKey) {
+        integrations.push({
+          integration_type: "telnyx",
+          name: "Telnyx",
+          api_key: data.telnyxApiKey,
+        });
+      }
+
+      if (data.twilioAccountSid && data.twilioAuthToken) {
+        integrations.push({
+          integration_type: "twilio",
+          name: "Twilio",
+          api_key: data.twilioAccountSid,
+          api_secret: data.twilioAuthToken,
+        });
+      }
+
+      await Promise.all(
+        integrations.map((integration) => integrationApi.create(integration))
+      );
+
+      toast({
+        title: "Settings saved",
+        description: "Your API keys have been saved securely",
+      });
+
+      form.reset();
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+      toast({
+        title: "Failed to save settings",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -183,7 +253,9 @@ export default function SettingsPage() {
               </Card>
 
               <div className="flex justify-end">
-                <Button type="submit">Save Settings</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? "Saving..." : "Save Settings"}
+                </Button>
               </div>
             </form>
           </Form>

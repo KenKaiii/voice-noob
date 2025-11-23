@@ -26,6 +26,14 @@ def create_access_token(subject: str | Any, expires_delta: timedelta | None = No
     return encoded_jwt
 
 
+def create_refresh_token(subject: str | Any) -> str:
+    """Create a JWT refresh token."""
+    expire = datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode = {"exp": expire, "sub": str(subject)}
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return encoded_jwt
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash."""
     return pwd_context.verify(plain_password, hashed_password)
