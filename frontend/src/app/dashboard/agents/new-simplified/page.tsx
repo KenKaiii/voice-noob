@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -29,7 +30,9 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { TierSelector } from "@/components/tier-selector";
 import { PRICING_TIERS } from "@/lib/pricing-tiers";
+import { agentApi } from "@/lib/api-client";
 import { ChevronRight } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 const agentFormSchema = z.object({
   // Step 1: Pricing & Basic
@@ -52,6 +55,9 @@ type AgentFormValues = z.infer<typeof agentFormSchema>;
 
 export default function NewAgentSimplifiedPage() {
   const [step, setStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const router = useRouter();
+  const { toast } = useToast();
 
   const form = useForm<AgentFormValues>({
     resolver: zodResolver(agentFormSchema),
@@ -66,12 +72,50 @@ export default function NewAgentSimplifiedPage() {
 
   const selectedTier = PRICING_TIERS.find((t) => t.id === form.watch("pricingTier"));
 
-  function onSubmit(data: AgentFormValues) {
-    console.error("Creating agent with tier config:", {
-      ...data,
-      tierConfig: selectedTier?.config,
-    });
-    // TODO: API call to create agent
+  async function onSubmit(data: AgentFormValues) {
+    if (!selectedTier) return;
+
+    setIsSubmitting(true);
+
+    try {
+      await agentApi.create({
+        name: data.name,
+        description: data.description,
+        pricing_tier: data.pricingTier,
+        system_prompt: data.systemPrompt,
+        llm_config: {
+          provider: selectedTier.config.llmProvider,
+          model: selectedTier.config.llmModel,
+        },
+        stt_config: {
+          provider: selectedTier.config.sttProvider,
+          model: selectedTier.config.sttModel,
+        },
+        tts_config: {
+          provider: selectedTier.config.ttsProvider,
+          model: selectedTier.config.ttsModel,
+        },
+        phone_number_id: data.phoneNumberId ? parseInt(data.phoneNumberId) : undefined,
+        enabled_integrations: [],
+        is_active: true,
+      });
+
+      toast({
+        title: "Agent created successfully",
+        description: `${data.name} is now ready to use`,
+      });
+
+      router.push("/dashboard/agents");
+    } catch (error) {
+      console.error("Failed to create agent:", error);
+      toast({
+        title: "Failed to create agent",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -537,7 +581,9 @@ export default function NewAgentSimplifiedPage() {
                 <Button type="button" variant="outline" onClick={() => setStep(2)}>
                   Back
                 </Button>
-                <Button type="submit">Create Agent</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? "Creating..." : "Create Agent"}
+                </Button>
               </div>
             </div>
           )}
