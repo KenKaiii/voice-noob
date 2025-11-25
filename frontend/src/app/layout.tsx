@@ -3,6 +3,7 @@
 import "./globals.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { Toaster } from "sonner";
 import { ErrorBoundary } from "@/components/error-boundary";
 
 export default function RootLayout({
@@ -29,6 +30,7 @@ export default function RootLayout({
       <body className="antialiased">
         <ErrorBoundary>
           <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+          <Toaster position="top-right" richColors />
         </ErrorBoundary>
       </body>
     </html>

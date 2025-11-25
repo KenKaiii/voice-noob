@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useMemo, memo } from "react";
+import { useState, useMemo, memo } from "react";
 import { useDebounce } from "use-debounce";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -65,8 +66,9 @@ export default function IntegrationsPage() {
   const [debouncedSearchQuery] = useDebounce(searchQuery, 300);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
 
-  // Mock connected integrations - will be replaced with API
-  const connectedIntegrations = new Set<string>([]);
+  // Internal tools are always "connected" (no credentials needed)
+  const internalTools = new Set<string>(["crm", "bookings"]);
+  const connectedIntegrations = internalTools;
 
   const categories = [
     { value: "all", label: "All" },
@@ -240,130 +242,52 @@ const IntegrationCard = memo(function IntegrationCard({
 
 const IntegrationConfigForm = memo(function IntegrationConfigForm({
   integration,
-  isConnected,
+  isConnected: _isConnected,
   onClose,
 }: {
   integration: Integration;
   isConnected: boolean;
   onClose: () => void;
 }) {
-  const handleOAuthConnect = useCallback(() => {
-    // TODO: Implement OAuth flow with backend /api/v1/integrations/oauth endpoint
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.log("Starting OAuth for", integration.id);
-    }
-    // window.location.href = `/api/v1/integrations/${integration.id}/oauth`;
-  }, [integration.id]);
-
-  const handleApiKeySubmit = useCallback(
-    (e: React.FormEvent<HTMLFormElement>) => {
-      e.preventDefault();
-      // const formData = new FormData(e.currentTarget);
-      // const credentials = Object.fromEntries(formData.entries());
-      if (process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
-        console.log("Saving credentials for", integration.id);
-      }
-      // TODO: Implement API endpoint POST /api/v1/integrations/credentials and connect here
-      onClose();
-    },
-    [integration.id, onClose]
-  );
-
-  const handleDisconnect = useCallback(() => {
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.log("Disconnecting", integration.id);
-    }
-    // TODO: Implement API endpoint DELETE /api/v1/integrations/{id} and connect here
-    onClose();
-  }, [integration.id, onClose]);
-
-  if (integration.authType === "oauth") {
+  // For internal tools (authType: "none"), just show info
+  if (integration.authType === "none") {
     return (
       <div className="space-y-4">
-        {integration.scopes && integration.scopes.length > 0 && (
-          <div className="space-y-2 rounded-lg border p-4">
-            <p className="text-sm font-medium">This integration will access:</p>
-            <ul className="space-y-1 text-sm text-muted-foreground">
-              {integration.scopes.map((scope) => (
-                <li key={scope} className="flex items-center gap-2">
-                  <Check className="h-3 w-3" />
-                  {scope}
-                </li>
-              ))}
-            </ul>
+        <div className="rounded-lg border border-green-500/20 bg-green-500/10 p-4">
+          <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+            <Check className="h-4 w-4" />
+            <span className="text-sm font-medium">Always Available</span>
           </div>
-        )}
-
-        {isConnected ? (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-green-500/20 bg-green-500/10 p-4">
-              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                <Check className="h-4 w-4" />
-                <span className="text-sm font-medium">Connected</span>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleOAuthConnect} className="flex-1">
-                Reconnect
-              </Button>
-              <Button variant="destructive" onClick={handleDisconnect} className="flex-1">
-                Disconnect
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button onClick={handleOAuthConnect} className="w-full">
-            Connect with {integration.name}
-          </Button>
-        )}
+          <p className="mt-2 text-sm text-muted-foreground">
+            This is an internal tool that works with your existing CRM data. No configuration
+            needed.
+          </p>
+        </div>
+        <Button onClick={onClose} className="w-full">
+          Close
+        </Button>
       </div>
     );
   }
 
-  // API Key / Basic Auth Form
+  // External integrations - coming soon
+  const handleExternalIntegration = () => {
+    toast.info("External integrations coming soon! Use internal CRM and Bookings tools for now.");
+    onClose();
+  };
+
+  // All other integrations - show coming soon message
   return (
-    <form onSubmit={handleApiKeySubmit} className="space-y-4">
-      {integration.fields?.map((field) => (
-        <div key={field.name} className="space-y-2">
-          <label className="text-sm font-medium">
-            {field.label}
-            {field.required && <span className="ml-1 text-destructive">*</span>}
-          </label>
-          <Input
-            name={field.name}
-            type={field.type}
-            placeholder={field.placeholder}
-            required={field.required}
-          />
-          {field.description && (
-            <p className="text-xs text-muted-foreground">{field.description}</p>
-          )}
-        </div>
-      ))}
-      <div className="flex gap-2 pt-4">
-        {isConnected ? (
-          <>
-            <Button type="submit" variant="outline" className="flex-1">
-              Update
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={handleDisconnect}
-              className="flex-1"
-            >
-              Disconnect
-            </Button>
-          </>
-        ) : (
-          <Button type="submit" className="w-full">
-            Connect
-          </Button>
-        )}
+    <div className="space-y-4">
+      <div className="rounded-lg border p-4">
+        <p className="text-sm text-muted-foreground">
+          External integrations are coming soon! For now, use the internal CRM and Bookings tools
+          which work with your existing data.
+        </p>
       </div>
-    </form>
+      <Button onClick={handleExternalIntegration} className="w-full">
+        Coming Soon
+      </Button>
+    </div>
   );
 });

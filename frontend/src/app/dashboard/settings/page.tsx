@@ -1,8 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { fetchSettings, updateSettings, type UpdateSettingsRequest } from "@/lib/api/settings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -30,6 +34,14 @@ const apiKeysSchema = z.object({
 type ApiKeysFormValues = z.infer<typeof apiKeysSchema>;
 
 export default function SettingsPage() {
+  const queryClient = useQueryClient();
+
+  // Fetch existing settings
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: fetchSettings,
+  });
+
   const form = useForm<ApiKeysFormValues>({
     resolver: zodResolver(apiKeysSchema),
     defaultValues: {
@@ -42,13 +54,44 @@ export default function SettingsPage() {
     },
   });
 
-  function onSubmit(_data: ApiKeysFormValues) {
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.log("Saving API keys settings (keys not logged for security)");
+  // Show placeholders for keys that are set (we don't receive actual values for security)
+  useEffect(() => {
+    if (settings) {
+      // Reset form to show placeholder text for already-set keys
+      form.reset({
+        openaiApiKey: settings.openai_api_key_set ? "••••••••" : "",
+        deepgramApiKey: settings.deepgram_api_key_set ? "••••••••" : "",
+        elevenLabsApiKey: settings.elevenlabs_api_key_set ? "••••••••" : "",
+        telnyxApiKey: settings.telnyx_api_key_set ? "••••••••" : "",
+        twilioAccountSid: settings.twilio_account_sid_set ? "••••••••" : "",
+        twilioAuthToken: "",
+      });
     }
-    // TODO: Implement API endpoint POST /api/v1/settings and connect here
-  }
+  }, [settings, form]);
+
+  const updateMutation = useMutation({
+    mutationFn: updateSettings,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["settings"] });
+      toast.success("Settings saved successfully!");
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to save settings: ${error.message}`);
+    },
+  });
+
+  const handleSubmit = (data: ApiKeysFormValues) => {
+    // Filter out placeholder values (don't send "••••••••" back to the server)
+    const request: UpdateSettingsRequest = {
+      openai_api_key: data.openaiApiKey === "••••••••" ? undefined : data.openaiApiKey,
+      deepgram_api_key: data.deepgramApiKey === "••••••••" ? undefined : data.deepgramApiKey,
+      elevenlabs_api_key: data.elevenLabsApiKey === "••••••••" ? undefined : data.elevenLabsApiKey,
+      telnyx_api_key: data.telnyxApiKey === "••••••••" ? undefined : data.telnyxApiKey,
+      twilio_account_sid: data.twilioAccountSid === "••••••••" ? undefined : data.twilioAccountSid,
+      twilio_auth_token: data.twilioAuthToken,
+    };
+    updateMutation.mutate(request);
+  };
 
   return (
     <div className="space-y-6">
@@ -68,7 +111,8 @@ export default function SettingsPage() {
           <Form {...form}>
             <form
               onSubmit={(e) => {
-                void form.handleSubmit(onSubmit)(e);
+                e.preventDefault();
+                void form.handleSubmit(handleSubmit)();
               }}
               className="space-y-6"
             >
@@ -186,7 +230,9 @@ export default function SettingsPage() {
               </Card>
 
               <div className="flex justify-end">
-                <Button type="submit">Save Settings</Button>
+                <Button type="submit" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? "Saving..." : "Save Settings"}
+                </Button>
               </div>
             </form>
           </Form>

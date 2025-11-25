@@ -9,6 +9,7 @@ Create Date: 2025-11-24
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
@@ -26,7 +27,7 @@ def upgrade() -> None:
         "contacts",
         ["user_id", "email"],
         unique=True,
-        postgresql_where=op.inline_literal("email IS NOT NULL"),
+        postgresql_where=sa.text("email IS NOT NULL"),
     )
 
     # Add unique constraint for phone_number + user_id combination

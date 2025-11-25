@@ -1,8 +1,13 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Bot, MoreVertical, Play, Pause } from "lucide-react";
+import { Plus, Bot, MoreVertical, Play, Pause, AlertCircle } from "lucide-react";
 import Link from "next/link";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { fetchAgents, deleteAgent } from "@/lib/api/agents";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,18 +15,33 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-type Agent = {
-  id: string;
-  name: string;
-  language: string;
-  isActive: boolean;
-  phoneNumber?: string;
-  totalCalls: number;
-};
-
 export default function AgentsPage() {
-  // Mock data - will be replaced with API call
-  const agents: Agent[] = [];
+  const queryClient = useQueryClient();
+
+  // Fetch agents from API
+  const {
+    data: agents = [],
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["agents"],
+    queryFn: fetchAgents,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteAgent,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
+      toast.success("Agent deleted successfully");
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to delete agent: ${error.message}`);
+    },
+  });
+
+  const handleDelete = (agentId: string) => {
+    void deleteMutation.mutateAsync(agentId);
+  };
 
   return (
     <div className="space-y-6">
@@ -38,7 +58,26 @@ export default function AgentsPage() {
         </Button>
       </div>
 
-      {agents.length === 0 ? (
+      {isLoading ? (
+        <Card>
+          <CardContent className="flex items-center justify-center py-16">
+            <p className="text-muted-foreground">Loading agents...</p>
+          </CardContent>
+        </Card>
+      ) : error ? (
+        <Card className="border-destructive">
+          <CardContent className="flex flex-col items-center justify-center py-16">
+            <AlertCircle className="mb-4 h-16 w-16 text-destructive" />
+            <h3 className="mb-2 text-lg font-semibold">Failed to load agents</h3>
+            <p className="mb-4 text-center text-sm text-muted-foreground">
+              {error instanceof Error ? error.message : "An unexpected error occurred"}
+            </p>
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      ) : agents.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Bot className="mb-4 h-16 w-16 text-muted-foreground/50" />
@@ -66,7 +105,10 @@ export default function AgentsPage() {
                     </div>
                     <div>
                       <CardTitle className="text-lg">{agent.name}</CardTitle>
-                      <CardDescription className="text-xs">{agent.language}</CardDescription>
+                      <CardDescription className="text-xs">
+                        {agent.pricing_tier.charAt(0).toUpperCase() + agent.pricing_tier.slice(1)} •{" "}
+                        {agent.language}
+                      </CardDescription>
                     </div>
                   </div>
                   <DropdownMenu>
@@ -81,7 +123,12 @@ export default function AgentsPage() {
                       </DropdownMenuItem>
                       <DropdownMenuItem>Test</DropdownMenuItem>
                       <DropdownMenuItem>Duplicate</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => handleDelete(agent.id)}
+                      >
+                        Delete
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -90,8 +137,8 @@ export default function AgentsPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Status</span>
-                    <Badge variant={agent.isActive ? "default" : "secondary"}>
-                      {agent.isActive ? (
+                    <Badge variant={agent.is_active ? "default" : "secondary"}>
+                      {agent.is_active ? (
                         <>
                           <Play className="mr-1 h-3 w-3" /> Active
                         </>
@@ -103,12 +150,18 @@ export default function AgentsPage() {
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Phone Number</span>
-                    <span className="font-mono text-xs">{agent.phoneNumber ?? "Not assigned"}</span>
+                    <span className="text-muted-foreground">Phone</span>
+                    <span className="font-mono text-xs">
+                      {agent.phone_number_id ?? "Not assigned"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Tools</span>
+                    <span className="font-semibold">{agent.enabled_tools.length}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Total Calls</span>
-                    <span className="font-semibold">{agent.totalCalls}</span>
+                    <span className="font-semibold">{agent.total_calls}</span>
                   </div>
                 </div>
               </CardContent>

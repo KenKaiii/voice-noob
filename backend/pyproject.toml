@@ -8,48 +8,38 @@ dependencies = [
     # Web Framework
     "fastapi[standard]>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-
     # Database
     "sqlalchemy[asyncio]>=2.0.35",
     "asyncpg>=0.30.0",
     "alembic>=1.13.3",
     "psycopg2-binary>=2.9.10",
-
     # Redis
     "redis[hiredis]>=5.2.0",
     "redis-om>=0.3.2",
-
     # Data Validation
     "pydantic>=2.9.2",
     "pydantic-settings>=2.6.1",
     "email-validator>=2.2.0",
-
     # Authentication & Security
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
     "bcrypt>=4.0.0,<5.0.0",
     "python-multipart>=0.0.18",
-
     # HTTP Client
     "httpx>=0.28.0",
-
     # Task Queue
     "arq>=0.26.1",
     "celery[redis]>=5.4.0",
-
     # Voice & AI
     "pipecat-ai>=0.0.67",
     "deepgram-sdk>=3.8.3",
     "elevenlabs>=1.11.0",
     "openai>=1.55.3",
-
     # Telephony
     "telnyx>=2.1.3",
     "twilio>=9.3.7",
-
     # Rate Limiting
     "slowapi>=0.1.9",
-
     # Monitoring & Logging
     "sentry-sdk[fastapi]>=2.18.0",
     "opentelemetry-api>=1.28.2",
@@ -57,10 +47,8 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.49b2",
     "opentelemetry-instrumentation-sqlalchemy>=0.49b2",
     "structlog>=24.4.0",
-
     # WebSockets
     "websockets>=14.1",
-
     # Utilities
     "python-dotenv>=1.0.1",
 ]
@@ -221,6 +209,8 @@ omit = ["*/tests/*", "*/migrations/*"]
 
 [dependency-groups]
 dev = [
+    "mypy>=1.18.2",
+    "ruff>=0.14.6",
     "types-passlib>=1.7.7.20250602",
     "types-python-jose>=3.5.0.20250531",
 ]

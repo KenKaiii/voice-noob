@@ -149,6 +149,14 @@ class ContactCreate(BaseModel):
         return v
 
 
+def _get_current_user_id() -> int:
+    """Get current user ID (placeholder until auth is implemented).
+
+    TODO: Replace with actual authentication - use CurrentUser dependency from app.core.auth
+    """
+    return 1
+
+
 @router.get("/contacts", response_model=list[ContactResponse])
 @limiter.limit("100/minute")
 async def list_contacts(
@@ -157,7 +165,10 @@ async def list_contacts(
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
 ) -> list[Contact]:
-    """List all contacts (simplified - normally would filter by user_id)."""
+    """List all contacts for the current user."""
+    # Get current user ID (placeholder)
+    user_id = _get_current_user_id()
+
     # Validate pagination parameters to prevent DoS
     if skip < 0:
         raise HTTPException(status_code=400, detail="Skip must be non-negative")
@@ -168,19 +179,20 @@ async def list_contacts(
     if skip > MAX_SKIP_OFFSET:  # Prevent massive table scans
         raise HTTPException(status_code=400, detail="Skip offset too large")
 
-    cache_key = f"crm:contacts:list:{skip}:{limit}"
+    cache_key = f"crm:contacts:list:{user_id}:{skip}:{limit}"
 
     # Try cache first
     cached = await cache_get(cache_key)
     if cached:
-        logger.debug("Cache hit for contacts list: skip=%d, limit=%d", skip, limit)
+        logger.debug("Cache hit for contacts list: user_id=%d, skip=%d, limit=%d", user_id, skip, limit)
         # Convert cached dicts back to Contact objects
         return [Contact(**contact_data) for contact_data in cached]
 
-    # Fetch from database
-    logger.debug("Cache miss - fetching contacts from database: skip=%d, limit=%d", skip, limit)
+    # Fetch from database - filtered by user_id to prevent data leaks
+    logger.debug("Cache miss - fetching contacts from database: user_id=%d, skip=%d, limit=%d", user_id, skip, limit)
     result = await db.execute(
         select(Contact)
+        .where(Contact.user_id == user_id)
         .options(undefer(Contact.notes))
         .offset(skip)
         .limit(limit)
@@ -203,8 +215,9 @@ async def get_contact(
     contact_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> Contact:
-    """Get a single contact by ID."""
-    cache_key = f"crm:contact:{contact_id}"
+    """Get a single contact by ID (must belong to current user)."""
+    user_id = _get_current_user_id()
+    cache_key = f"crm:contact:{user_id}:{contact_id}"
 
     # Try cache first
     cached = await cache_get(cache_key)
@@ -212,11 +225,13 @@ async def get_contact(
         logger.debug("Cache hit for contact: %d", contact_id)
         return Contact(**cached)
 
-    # Fetch from database
+    # Fetch from database - filter by user_id to prevent unauthorized access
     logger.debug("Cache miss - fetching contact from database: %d", contact_id)
     try:
         result = await db.execute(
-            select(Contact).options(undefer(Contact.notes)).where(Contact.id == contact_id),
+            select(Contact)
+            .options(undefer(Contact.notes))
+            .where(Contact.id == contact_id, Contact.user_id == user_id),
         )
         contact = result.scalar_one_or_none()
     except DBAPIError as e:
@@ -233,7 +248,7 @@ async def get_contact(
         ) from e
 
     if not contact:
-        logger.error("Contact not found: %d", contact_id)
+        logger.error("Contact not found or unauthorized: %d", contact_id)
         raise HTTPException(status_code=404, detail="Contact not found")
 
     # Cache for 10 minutes (600 seconds)
@@ -251,10 +266,11 @@ async def create_contact(
     contact_data: ContactCreate,
     db: AsyncSession = Depends(get_db),
 ) -> Contact:
-    """Create a new contact (simplified - normally would get user_id from auth)."""
+    """Create a new contact for the current user."""
+    user_id = _get_current_user_id()
     try:
         contact = Contact(
-            user_id=1,  # TODO: Replace with authenticated user_id once auth is implemented
+            user_id=user_id,
             **contact_data.model_dump(),
         )
         db.add(contact)
@@ -280,7 +296,7 @@ async def create_contact(
         await db.rollback()
         logger.warning(
             "Integrity constraint violation creating contact: user_id=%d, phone=%s",
-            1,
+            user_id,
             contact_data.phone_number,
         )
         # Check if it's a duplicate phone or email
@@ -310,7 +326,7 @@ async def create_contact(
         await db.rollback()
         logger.exception(
             "Unexpected error creating contact: user_id=%d, phone=%s",
-            1,
+            user_id,
             contact_data.phone_number,
         )
         raise HTTPException(

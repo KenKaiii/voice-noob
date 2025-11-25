@@ -5,6 +5,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { createAgent, type CreateAgentRequest } from "@/lib/api/agents";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -33,72 +37,18 @@ import { ChevronRight } from "lucide-react";
 
 // Tool configurations - defined outside component to prevent recreation on every render
 const AVAILABLE_TOOLS = [
+  // Internal tools (always available)
   {
-    id: "google-calendar",
-    name: "Google Calendar",
-    desc: "Schedule meetings, check availability",
-    connected: false,
+    id: "crm",
+    name: "Internal CRM",
+    desc: "Search customers, view contacts, manage customer data",
+    connected: true,
   },
   {
-    id: "salesforce",
-    name: "Salesforce",
-    desc: "Access CRM data",
-    connected: false,
-  },
-  {
-    id: "hubspot",
-    name: "HubSpot",
-    desc: "Manage contacts & deals",
-    connected: false,
-  },
-  {
-    id: "notion",
-    name: "Notion",
-    desc: "Query & update databases",
-    connected: false,
-  },
-  {
-    id: "slack",
-    name: "Slack",
-    desc: "Send messages & notifications",
-    connected: false,
-  },
-  { id: "gmail", name: "Gmail", desc: "Send emails", connected: false },
-  {
-    id: "google-sheets",
-    name: "Google Sheets",
-    desc: "Read & write spreadsheets",
-    connected: false,
-  },
-  {
-    id: "airtable",
-    name: "Airtable",
-    desc: "Access database records",
-    connected: false,
-  },
-  {
-    id: "zendesk",
-    name: "Zendesk",
-    desc: "Manage support tickets",
-    connected: false,
-  },
-  {
-    id: "stripe",
-    name: "Stripe",
-    desc: "Process payments",
-    connected: false,
-  },
-  {
-    id: "twilio",
-    name: "Twilio",
-    desc: "Send SMS messages",
-    connected: false,
-  },
-  {
-    id: "sendgrid",
-    name: "SendGrid",
-    desc: "Send transactional emails",
-    connected: false,
+    id: "bookings",
+    name: "Appointment Booking",
+    desc: "Check availability, book/cancel/reschedule appointments",
+    connected: true,
   },
 ] as const;
 
@@ -127,9 +77,13 @@ export default function NewAgentSimplifiedPage() {
   const form = useForm<AgentFormValues>({
     resolver: zodResolver(agentFormSchema),
     defaultValues: {
+      name: "",
+      description: "",
+      systemPrompt: "",
       pricingTier: "balanced",
       language: "en-US",
       enabledTools: [],
+      phoneNumberId: "",
       enableRecording: true,
       enableTranscript: true,
     },
@@ -145,12 +99,33 @@ export default function NewAgentSimplifiedPage() {
     [pricingTier]
   );
 
+  const router = useRouter();
+
+  const createAgentMutation = useMutation({
+    mutationFn: createAgent,
+    onSuccess: (agent) => {
+      toast.success(`Agent "${agent.name}" created successfully!`);
+      router.push("/dashboard/agents");
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to create agent: ${error.message}`);
+    },
+  });
+
   function onSubmit(data: AgentFormValues) {
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.log("Creating agent:", data.name, "with tier:", data.pricingTier);
-    }
-    // TODO: Implement API endpoint POST /api/v1/agents and connect here
+    const request: CreateAgentRequest = {
+      name: data.name,
+      description: data.description,
+      pricing_tier: data.pricingTier,
+      system_prompt: data.systemPrompt,
+      language: data.language,
+      enabled_tools: data.enabledTools,
+      phone_number_id: data.phoneNumberId,
+      enable_recording: data.enableRecording,
+      enable_transcript: data.enableTranscript,
+    };
+
+    createAgentMutation.mutate(request);
   }
 
   return (
@@ -324,7 +299,14 @@ export default function NewAgentSimplifiedPage() {
               </Card>
 
               <div className="flex justify-end">
-                <Button type="button" onClick={() => setStep(2)}>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    void form.trigger(["name", "systemPrompt"]).then((isValid) => {
+                      if (isValid) setStep(2);
+                    });
+                  }}
+                >
                   Next: Configure Tools
                 </Button>
               </div>
@@ -553,7 +535,9 @@ export default function NewAgentSimplifiedPage() {
                 <Button type="button" variant="outline" onClick={() => setStep(2)}>
                   Back
                 </Button>
-                <Button type="submit">Create Agent</Button>
+                <Button type="submit" disabled={createAgentMutation.isPending}>
+                  {createAgentMutation.isPending ? "Creating..." : "Create Agent"}
+                </Button>
               </div>
             </div>
           )}

@@ -1,6 +1,11 @@
 "use client";
 
-import { useState } from "react";
+/* eslint-disable no-console -- Debug logging is intentional for WebSocket/audio troubleshooting */
+
+import { useState, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { fetchAgents } from "@/lib/api/agents";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,24 +22,256 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function TestAgentPage() {
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [transcript, setTranscript] = useState<
     Array<{ id: string; speaker: string; text: string; timestamp: Date }>
   >([]);
+  const [audioStatus, setAudioStatus] = useState<string>("Not connected");
+  const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
 
-  const handleConnect = () => {
-    setIsConnected(!isConnected);
-    if (!isConnected) {
-      // Simulate connection
-      setTranscript([
-        {
-          id: crypto.randomUUID(),
-          speaker: "Agent",
-          text: "Hello! How can I help you today?",
-          timestamp: new Date(),
-        },
-      ]);
+  const wsRef = useRef<WebSocket | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+
+  // Fetch agents from API
+  const { data: agents = [] } = useQuery({
+    queryKey: ["agents"],
+    queryFn: fetchAgents,
+  });
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (processorRef.current) {
+        processorRef.current.disconnect();
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      if (audioContextRef.current) {
+        void audioContextRef.current.close();
+      }
+    };
+  }, []);
+
+  const handleConnect = async () => {
+    if (isConnected) {
+      // Disconnect
+      if (processorRef.current) {
+        processorRef.current.disconnect();
+        processorRef.current = null;
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      if (audioContextRef.current) {
+        void audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+      setIsConnected(false);
+      setAudioStatus("Disconnected");
+      return;
+    }
+
+    if (!selectedAgentId) {
+      toast.error("Please select an agent first");
+      return;
+    }
+
+    const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+    if (!selectedAgent) return;
+
+    try {
+      // Step 1: Request microphone access
+      setAudioStatus("Requesting microphone access...");
+      addTranscript("System", "Requesting microphone permission...");
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      addTranscript("System", "✓ Microphone access granted");
+
+      // Step 2: Connect WebSocket to backend
+      setAudioStatus("Connecting to voice agent...");
+      addTranscript("System", `Connecting to ${selectedAgent.name}...`);
+
+      const wsBase = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000";
+      const ws = new WebSocket(`${wsBase}/ws/realtime/${selectedAgentId}`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("[WebSocket] Connected");
+        setIsConnected(true);
+        setAudioStatus("Connected - Voice active");
+        addTranscript("System", "✓ Connected to voice agent");
+        addTranscript("System", `Tier: ${selectedAgent.pricing_tier}`);
+        addTranscript("System", `Tools: ${selectedAgent.enabled_tools.join(", ")}`);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log("[WebSocket] Received:", data.type);
+
+          if (data.type === "session.ready") {
+            console.log("[Session] Ready - session_id:", data.session_id);
+            addTranscript("Agent", "Hello! How can I help you today?");
+          } else if (data.type === "input_audio_buffer.speech_started") {
+            console.log("[VAD] User started speaking - interrupting agent");
+            setIsAgentSpeaking(false);
+            // Send truncate command to stop agent's current response
+            ws.send(
+              JSON.stringify({
+                type: "response.cancel",
+              })
+            );
+          } else if (data.type === "conversation.item.input_audio_transcription.completed") {
+            addTranscript("You", data.event?.transcript ?? "(audio)");
+          } else if (data.type === "response.audio.delta") {
+            // Play audio chunk from agent
+            const audioData = data.event?.delta;
+            if (audioData) {
+              void playAudioChunk(audioData);
+            }
+          } else if (data.type === "response.audio.done") {
+            console.log("[Audio] Agent finished speaking");
+            setIsAgentSpeaking(false);
+          } else if (data.type === "response.audio_transcript.delta") {
+            setIsAgentSpeaking(true);
+          } else if (data.type === "response.audio_transcript.done") {
+            addTranscript("Agent", data.event?.transcript ?? "");
+          } else if (data.type === "response.done") {
+            console.log("[Response] Done");
+            setIsAgentSpeaking(false);
+          } else if (data.type === "error") {
+            console.error("[Error]", data.error);
+            addTranscript("System", `✗ Error: ${data.error}`);
+          }
+        } catch (e) {
+          console.error("[WebSocket] Error parsing message:", e);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("[WebSocket] Error:", error);
+        setAudioStatus("Connection error");
+        addTranscript("System", "✗ Connection error - check if OPENAI_API_KEY is set in backend");
+      };
+
+      ws.onclose = (event) => {
+        console.log("[WebSocket] Closed:", event.code, event.reason);
+        setIsConnected(false);
+        setAudioStatus("Disconnected");
+        addTranscript("System", `Call ended (code: ${event.code})`);
+      };
+
+      // Step 3: Set up audio capture and streaming
+      const audioContext = new AudioContext({ sampleRate: 24000 });
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+
+      // Create audio processor to capture and send audio
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      processor.onaudioprocess = (e) => {
+        // Only send audio if connected, not muted, and agent is not speaking
+        if (ws.readyState === WebSocket.OPEN && !isMuted && !isAgentSpeaking) {
+          const inputData = e.inputBuffer.getChannelData(0);
+
+          // Convert Float32Array to Int16Array (PCM16)
+          const pcm16 = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            const sample = inputData[i];
+            if (sample !== undefined) {
+              const s = Math.max(-1, Math.min(1, sample));
+              pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+            }
+          }
+
+          // Send as binary data
+          ws.send(pcm16.buffer);
+        }
+      };
+
+      // Connect audio graph: source -> processor -> destination
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+      console.log("[Audio] Microphone active, sample rate:", audioContext.sampleRate);
+      addTranscript("System", "🎤 Microphone active - speak to test your agent!");
+    } catch (error: unknown) {
+      const err = error as Error;
+      setAudioStatus("Error");
+      addTranscript("System", `✗ Error: ${err.message}`);
+      if (err.name === "NotAllowedError") {
+        toast.error(
+          "Microphone access denied. Please allow microphone access in your browser settings."
+        );
+      }
+    }
+  };
+
+  const handleConnectClick = () => {
+    void handleConnect();
+  };
+
+  const addTranscript = (speaker: string, text: string) => {
+    setTranscript((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        speaker,
+        text,
+        timestamp: new Date(),
+      },
+    ]);
+  };
+
+  const playAudioChunk = async (base64Audio: string) => {
+    const audioContext = audioContextRef.current;
+    if (!audioContext) return;
+
+    try {
+      // Decode base64 to binary
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Convert Int16 PCM to Float32 for Web Audio API
+      const int16Array = new Int16Array(bytes.buffer);
+      const float32Array = new Float32Array(int16Array.length);
+      for (let i = 0; i < int16Array.length; i++) {
+        const sample = int16Array[i];
+        float32Array[i] = sample !== undefined ? sample / 32768.0 : 0;
+      }
+
+      // Create audio buffer and play
+      const audioBuffer = audioContext.createBuffer(1, float32Array.length, 24000);
+      audioBuffer.getChannelData(0).set(float32Array);
+
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+
+      // Play immediately - Web Audio API handles queuing internally
+      source.start(0);
+
+      console.log("[Audio] Playing chunk:", float32Array.length, "samples");
+    } catch (e) {
+      console.error("[Audio] Playback error:", e);
     }
   };
 
@@ -57,12 +294,22 @@ export default function TestAgentPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Select Agent</Label>
-                <Select>
+                <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose an agent to test" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No agents available</SelectItem>
+                    {agents.length === 0 ? (
+                      <SelectItem value="none" disabled>
+                        No agents available - create one first
+                      </SelectItem>
+                    ) : (
+                      agents.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {agent.name} ({agent.pricing_tier})
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -75,9 +322,10 @@ export default function TestAgentPage() {
 
             <div className="flex gap-2 pt-4">
               <Button
-                onClick={handleConnect}
+                onClick={handleConnectClick}
                 variant={isConnected ? "destructive" : "default"}
                 className="flex-1"
+                disabled={!selectedAgentId && !isConnected}
               >
                 {isConnected ? (
                   <>
@@ -103,9 +351,7 @@ export default function TestAgentPage() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Call Status</Label>
-                <Badge variant={isConnected ? "default" : "secondary"}>
-                  {isConnected ? "Connected" : "Disconnected"}
-                </Badge>
+                <Badge variant={isConnected ? "default" : "secondary"}>{audioStatus}</Badge>
               </div>
 
               <Card className="bg-muted/50">

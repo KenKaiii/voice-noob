@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -3333,6 +3333,8 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "mypy" },
+    { name = "ruff" },
     { name = "types-passlib" },
     { name = "types-python-jose" },
 ]
@@ -3390,6 +3392,8 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "mypy", specifier = ">=1.18.2" },
+    { name = "ruff", specifier = ">=0.14.6" },
     { name = "types-passlib", specifier = ">=1.7.7.20250602" },
     { name = "types-python-jose", specifier = ">=3.5.0.20250531" },
 ]
