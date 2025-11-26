@@ -26,7 +26,7 @@ class TestCacheGetSet:
     """Test basic cache get and set operations."""
 
     @pytest.mark.asyncio
-    async def test_cache_set_and_get_success(self, test_redis: Any) -> None:
+    async def test_cache_set_and_get_success(self) -> None:
         """Test setting and getting a cache value."""
         key = "test:key"
         value = {"name": "John Doe", "age": 30}
@@ -40,13 +40,13 @@ class TestCacheGetSet:
         assert cached_value == value
 
     @pytest.mark.asyncio
-    async def test_cache_get_nonexistent_key(self, test_redis: Any) -> None:
+    async def test_cache_get_nonexistent_key(self) -> None:
         """Test getting a non-existent cache key returns None."""
         result = await cache_get("nonexistent:key")
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_cache_set_different_types(self, test_redis: Any) -> None:
+    async def test_cache_set_different_types(self) -> None:
         """Test caching different data types."""
         # String
         await cache_set("test:string", "hello")
@@ -87,7 +87,7 @@ class TestCacheGetSet:
         assert ttl <= 1
 
     @pytest.mark.asyncio
-    async def test_cache_set_overwrites_existing(self, test_redis: Any) -> None:
+    async def test_cache_set_overwrites_existing(self) -> None:
         """Test that setting a cache key overwrites existing value."""
         key = "test:overwrite"
 
@@ -128,7 +128,7 @@ class TestCacheDelete:
     """Test cache deletion."""
 
     @pytest.mark.asyncio
-    async def test_cache_delete_existing_key(self, test_redis: Any) -> None:
+    async def test_cache_delete_existing_key(self) -> None:
         """Test deleting an existing cache key."""
         key = "test:delete"
         await cache_set(key, "value")
@@ -144,7 +144,7 @@ class TestCacheDelete:
         assert await cache_get(key) is None
 
     @pytest.mark.asyncio
-    async def test_cache_delete_nonexistent_key(self, test_redis: Any) -> None:
+    async def test_cache_delete_nonexistent_key(self) -> None:
         """Test deleting a non-existent key."""
         result = await cache_delete("nonexistent:key")
         assert result is True  # Redis delete returns success even if key doesn't exist
@@ -165,7 +165,7 @@ class TestCacheInvalidate:
     """Test cache invalidation with patterns."""
 
     @pytest.mark.asyncio
-    async def test_cache_invalidate_pattern_match(self, test_redis: Any) -> None:
+    async def test_cache_invalidate_pattern_match(self) -> None:
         """Test invalidating multiple keys with pattern."""
         # Set multiple keys
         await cache_set("user:1:profile", {"name": "User 1"})
@@ -186,13 +186,13 @@ class TestCacheInvalidate:
         assert await cache_get("product:1") == {"name": "Product 1"}
 
     @pytest.mark.asyncio
-    async def test_cache_invalidate_no_matches(self, test_redis: Any) -> None:
+    async def test_cache_invalidate_no_matches(self) -> None:
         """Test invalidating with pattern that matches no keys."""
         deleted_count = await cache_invalidate("nonexistent:*")
         assert deleted_count == 0
 
     @pytest.mark.asyncio
-    async def test_cache_invalidate_wildcard_patterns(self, test_redis: Any) -> None:
+    async def test_cache_invalidate_wildcard_patterns(self) -> None:
         """Test various wildcard patterns."""
         # Set up test data
         await cache_set("crm:stats:all", {})
@@ -226,7 +226,7 @@ class TestCachedDecorator:
     """Test the @cached decorator."""
 
     @pytest.mark.asyncio
-    async def test_cached_decorator_caches_result(self, test_redis: Any) -> None:
+    async def test_cached_decorator_caches_result(self) -> None:
         """Test that decorator caches function results."""
         call_count = 0
 
@@ -252,7 +252,7 @@ class TestCachedDecorator:
         assert call_count == 2
 
     @pytest.mark.asyncio
-    async def test_cached_decorator_different_arguments(self, test_redis: Any) -> None:
+    async def test_cached_decorator_different_arguments(self) -> None:
         """Test that decorator creates different cache keys for different arguments."""
 
         @cached(prefix="test:func", ttl=60)
@@ -269,7 +269,7 @@ class TestCachedDecorator:
         assert result3 == {"id": 2, "name": "Alice"}
 
     @pytest.mark.asyncio
-    async def test_cached_decorator_with_kwargs(self, test_redis: Any) -> None:
+    async def test_cached_decorator_with_kwargs(self) -> None:
         """Test decorator works with keyword arguments."""
 
         @cached(prefix="test:kwargs", ttl=60)
@@ -305,7 +305,7 @@ class TestCachedDecorator:
         assert 0 < ttl <= 30
 
     @pytest.mark.asyncio
-    async def test_cached_decorator_handles_none_result(self, test_redis: Any) -> None:
+    async def test_cached_decorator_handles_none_result(self) -> None:
         """Test decorator handles None as a valid cached value."""
         call_count = 0
 
@@ -330,7 +330,7 @@ class TestCacheStats:
     """Test cache statistics."""
 
     @pytest.mark.asyncio
-    async def test_cache_stats_returns_data(self, test_redis: Any) -> None:
+    async def test_cache_stats_returns_data(self) -> None:
         """Test that cache_stats returns statistics."""
         stats = await cache_stats()
 
@@ -355,7 +355,7 @@ class TestCacheIntegration:
     """Integration tests for caching functionality."""
 
     @pytest.mark.asyncio
-    async def test_cache_workflow(self, test_redis: Any) -> None:
+    async def test_cache_workflow(self) -> None:
         """Test complete cache workflow: set, get, update, delete."""
         key = "workflow:test"
 
@@ -372,7 +372,7 @@ class TestCacheIntegration:
         assert await cache_get(key) is None
 
     @pytest.mark.asyncio
-    async def test_multiple_cache_keys(self, test_redis: Any) -> None:
+    async def test_multiple_cache_keys(self) -> None:
         """Test managing multiple cache keys."""
         keys = {
             "key1": "value1",

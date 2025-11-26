@@ -21,14 +21,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Phone, Mail, Building2, Tag, Loader2, AlertCircle, X } from "lucide-react";
+import {
+  Plus,
+  Phone,
+  Mail,
+  Building2,
+  Tag,
+  Loader2,
+  AlertCircle,
+  X,
+  FolderOpen,
+} from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import Link from "next/link";
+
+interface Workspace {
+  id: string;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+}
 
 interface Contact {
   id: number;
   user_id: number;
+  workspace_id: string | null;
   first_name: string;
   last_name: string | null;
   email: string | null;
@@ -48,6 +67,7 @@ type ContactFormData = {
   status: string;
   tags: string;
   notes: string;
+  workspace_id: string;
 };
 
 const emptyFormData: ContactFormData = {
@@ -59,6 +79,7 @@ const emptyFormData: ContactFormData = {
   status: "new",
   tags: "",
   notes: "",
+  workspace_id: "",
 };
 
 export default function CRMPage() {
@@ -67,15 +88,29 @@ export default function CRMPage() {
   const [modalMode, setModalMode] = useState<"add" | "edit" | "view">("add");
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [formData, setFormData] = useState<ContactFormData>(emptyFormData);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("all");
+
+  // Fetch workspaces
+  const { data: workspaces = [] } = useQuery<Workspace[]>({
+    queryKey: ["workspaces"],
+    queryFn: async () => {
+      const response = await api.get("/api/v1/workspaces");
+      return response.data;
+    },
+  });
 
   const {
     data: contacts = [],
     isLoading,
     error,
   } = useQuery<Contact[]>({
-    queryKey: ["contacts"],
+    queryKey: ["contacts", selectedWorkspaceId],
     queryFn: async () => {
-      const response = await api.get("/api/v1/crm/contacts");
+      const url =
+        selectedWorkspaceId && selectedWorkspaceId !== "all"
+          ? `/api/v1/crm/contacts?workspace_id=${selectedWorkspaceId}`
+          : "/api/v1/crm/contacts";
+      const response = await api.get(url);
       return response.data;
     },
   });
@@ -125,7 +160,10 @@ export default function CRMPage() {
   });
 
   const openAddModal = () => {
-    setFormData(emptyFormData);
+    // Pre-fill workspace_id if a workspace is selected
+    const defaultWorkspaceId =
+      selectedWorkspaceId !== "all" ? selectedWorkspaceId : (workspaces[0]?.id ?? "");
+    setFormData({ ...emptyFormData, workspace_id: defaultWorkspaceId });
     setSelectedContact(null);
     setModalMode("add");
     setIsModalOpen(true);
@@ -142,6 +180,7 @@ export default function CRMPage() {
       status: contact.status,
       tags: contact.tags ?? "",
       notes: contact.notes ?? "",
+      workspace_id: contact.workspace_id ?? "",
     });
     setModalMode("view");
     setIsModalOpen(true);
@@ -216,10 +255,35 @@ export default function CRMPage() {
             Manage your contacts, appointments, and call interactions
           </p>
         </div>
-        <Button onClick={openAddModal}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Contact
-        </Button>
+        <div className="flex items-center gap-3">
+          {workspaces.length > 0 ? (
+            <Select value={selectedWorkspaceId} onValueChange={setSelectedWorkspaceId}>
+              <SelectTrigger className="w-[200px]">
+                <FolderOpen className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="All Workspaces" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Workspaces</SelectItem>
+                {workspaces.map((ws) => (
+                  <SelectItem key={ws.id} value={ws.id}>
+                    {ws.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Link
+              href="/dashboard/workspaces"
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              Create a workspace
+            </Link>
+          )}
+          <Button onClick={openAddModal}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Contact
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -438,6 +502,33 @@ export default function CRMPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {workspaces.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="workspace">
+                    <span className="flex items-center gap-2">
+                      <FolderOpen className="h-4 w-4" />
+                      Workspace
+                    </span>
+                  </Label>
+                  <Select
+                    value={formData.workspace_id}
+                    onValueChange={(value) => setFormData({ ...formData, workspace_id: value })}
+                    disabled={modalMode === "view"}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select workspace" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {workspaces.map((ws) => (
+                        <SelectItem key={ws.id} value={ws.id}>
+                          {ws.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="tags">Tags</Label>

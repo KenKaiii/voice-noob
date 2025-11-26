@@ -2,12 +2,15 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import ARRAY, JSON, Boolean, DateTime, String, Text, Uuid
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.workspace import AgentWorkspace
 
 
 class Agent(Base):
@@ -23,17 +26,13 @@ class Agent(Base):
 
     __tablename__ = "agents"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), nullable=False, index=True, comment="Owner user ID"
     )
 
     # Basic info
-    name: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment="Agent name"
-    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False, comment="Agent name")
     description: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="Agent description"
     )
@@ -109,6 +108,11 @@ class Agent(Base):
     )
     last_call_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, comment="Last time agent handled a call"
+    )
+
+    # Relationships
+    agent_workspaces: Mapped[list["AgentWorkspace"]] = relationship(
+        "AgentWorkspace", back_populates="agent", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

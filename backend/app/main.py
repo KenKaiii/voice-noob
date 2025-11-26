@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api import agents, crm, health, realtime, tools
+from app.api import agents, crm, health, realtime, tools, workspaces
 from app.api import settings as settings_api
 from app.core.config import settings
 from app.core.limiter import limiter
@@ -117,6 +117,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, tags=["health"])
 app.include_router(crm.router, prefix=settings.API_V1_PREFIX)
+app.include_router(workspaces.router, prefix=settings.API_V1_PREFIX)
 app.include_router(agents.router)
 app.include_router(settings_api.router)
 app.include_router(realtime.router)

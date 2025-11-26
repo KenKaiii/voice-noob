@@ -18,14 +18,13 @@ class UserIntegration(Base):
 
     __tablename__ = "user_integrations"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), nullable=False, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, index=True)
     integration_id: Mapped[str] = mapped_column(
-        String(100), nullable=False, index=True, comment="Integration slug (e.g., 'hubspot', 'slack')"
+        String(100),
+        nullable=False,
+        index=True,
+        comment="Integration slug (e.g., 'hubspot', 'slack')",
     )
     integration_name: Mapped[str] = mapped_column(
         String(200), nullable=False, comment="Display name (e.g., 'HubSpot', 'Slack')"

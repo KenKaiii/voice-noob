@@ -11,6 +11,8 @@ import {
   Zap,
   Users,
   Headphones,
+  Calendar,
+  FolderOpen,
 } from "lucide-react";
 
 import {
@@ -51,9 +53,19 @@ const navItems = [
     icon: Bot,
   },
   {
+    title: "Workspaces",
+    url: "/dashboard/workspaces",
+    icon: FolderOpen,
+  },
+  {
     title: "CRM",
     url: "/dashboard/crm",
     icon: Users,
+  },
+  {
+    title: "Appointments",
+    url: "/dashboard/appointments",
+    icon: Calendar,
   },
   {
     title: "Integrations",

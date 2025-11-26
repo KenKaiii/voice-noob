@@ -1,11 +1,13 @@
 """Pytest configuration and fixtures for backend tests."""
 
 import asyncio
+import logging
 import os
 
 # Test database URL (using temp file SQLite for tests)
 import tempfile
 from collections.abc import AsyncGenerator, Generator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -31,6 +33,8 @@ from app.models.user import User
 _test_db_fd, _test_db_path = tempfile.mkstemp(suffix=".db")
 os.close(_test_db_fd)
 TEST_DATABASE_URL = f"sqlite+aiosqlite:///{_test_db_path}"
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="session")
@@ -71,10 +75,11 @@ async def test_engine() -> AsyncGenerator[Any, None]:
 
     # Clean up temp database file
     try:
-        if os.path.exists(_test_db_path):
-            os.unlink(_test_db_path)
-    except Exception:
-        pass  # Ignore cleanup errors
+        db_path = Path(_test_db_path)
+        if db_path.exists():
+            db_path.unlink()
+    except Exception as e:
+        logger.debug("Failed to clean up test database: %s", e)
 
 
 @pytest_asyncio.fixture(scope="function")

@@ -33,7 +33,8 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, ArrowLeft, Loader2, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Loader2, Trash2, FolderOpen } from "lucide-react";
+import { api } from "@/lib/api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,6 +46,19 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+
+interface Workspace {
+  id: string;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+}
+
+interface AgentWorkspace {
+  workspace_id: string;
+  workspace_name: string;
+}
 
 const agentFormSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -80,6 +94,9 @@ const agentFormSchema = z.object({
 
   // Tools & Integrations
   enabledTools: z.array(z.string()).default([]),
+
+  // Workspaces
+  selectedWorkspaces: z.array(z.string()).default([]),
 });
 
 type AgentFormValues = z.infer<typeof agentFormSchema>;
@@ -100,6 +117,25 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
   } = useQuery({
     queryKey: ["agent", agentId],
     queryFn: () => getAgent(agentId),
+  });
+
+  // Fetch all workspaces
+  const { data: workspaces = [] } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: async () => {
+      const response = await api.get<Workspace[]>("/api/v1/workspaces");
+      return response.data;
+    },
+  });
+
+  // Fetch agent's current workspace assignments
+  const { data: agentWorkspaces = [] } = useQuery({
+    queryKey: ["agent-workspaces", agentId],
+    queryFn: async () => {
+      const response = await api.get<AgentWorkspace[]>(`/api/v1/workspaces/agent/${agentId}`);
+      return response.data;
+    },
+    enabled: !!agentId,
   });
 
   const form = useForm<AgentFormValues>({
@@ -127,6 +163,7 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
           turnDetectionMode: "server-vad",
           isActive: agent.is_active,
           enabledTools: agent.enabled_tools,
+          selectedWorkspaces: agentWorkspaces.map((aw) => aw.workspace_id),
         }
       : undefined,
   });
@@ -156,7 +193,18 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
     },
   });
 
-  function onSubmit(data: AgentFormValues) {
+  const assignWorkspacesMutation = useMutation({
+    mutationFn: async (workspaceIds: string[]) => {
+      await api.put(`/api/v1/workspaces/agent/${agentId}/workspaces`, {
+        workspace_ids: workspaceIds,
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agent-workspaces", agentId] });
+    },
+  });
+
+  async function onSubmit(data: AgentFormValues) {
     // Determine pricing tier based on LLM provider
     let pricingTier: "budget" | "balanced" | "premium" = "balanced";
     if (data.llmProvider === "openai-realtime") {
@@ -178,7 +226,15 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
       is_active: data.isActive,
     };
 
-    updateAgentMutation.mutate(request);
+    // Update agent and workspaces
+    try {
+      await Promise.all([
+        updateAgentMutation.mutateAsync(request),
+        assignWorkspacesMutation.mutateAsync(data.selectedWorkspaces),
+      ]);
+    } catch {
+      // Error handling is done in individual mutations
+    }
   }
 
   if (isLoading) {
@@ -339,6 +395,75 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
                             <SelectItem value="ja-JP">Japanese</SelectItem>
                           </SelectContent>
                         </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="selectedWorkspaces"
+                    render={() => (
+                      <FormItem>
+                        <div className="mb-4">
+                          <FormLabel className="flex items-center gap-2 text-base">
+                            <FolderOpen className="h-4 w-4" />
+                            Workspaces
+                          </FormLabel>
+                          <FormDescription>
+                            Assign this agent to workspaces. CRM contacts and appointments in these
+                            workspaces will be accessible to this agent.
+                          </FormDescription>
+                        </div>
+                        {workspaces.length === 0 ? (
+                          <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                            No workspaces created yet.{" "}
+                            <Link href="/dashboard/workspaces" className="text-primary underline">
+                              Create a workspace
+                            </Link>{" "}
+                            to organize your contacts and appointments.
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {workspaces.map((workspace) => (
+                              <FormField
+                                key={workspace.id}
+                                control={form.control}
+                                name="selectedWorkspaces"
+                                render={({ field }) => (
+                                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
+                                    <FormControl>
+                                      <Checkbox
+                                        checked={field.value?.includes(workspace.id)}
+                                        onCheckedChange={(checked: boolean) => {
+                                          const current = field.value || [];
+                                          field.onChange(
+                                            checked
+                                              ? [...current, workspace.id]
+                                              : current.filter((v) => v !== workspace.id)
+                                          );
+                                        }}
+                                      />
+                                    </FormControl>
+                                    <div className="space-y-1 leading-none">
+                                      <FormLabel className="cursor-pointer font-medium">
+                                        {workspace.name}
+                                        {workspace.is_default && (
+                                          <Badge variant="secondary" className="ml-2">
+                                            Default
+                                          </Badge>
+                                        )}
+                                      </FormLabel>
+                                      {workspace.description && (
+                                        <FormDescription>{workspace.description}</FormDescription>
+                                      )}
+                                    </div>
+                                  </FormItem>
+                                )}
+                              />
+                            ))}
+                          </div>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}

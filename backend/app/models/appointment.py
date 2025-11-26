@@ -1,15 +1,17 @@
 """Appointment model for CRM."""
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.contact import Contact
+    from app.models.workspace import Workspace
 
 
 class Appointment(Base, TimestampMixin):
@@ -19,6 +21,22 @@ class Appointment(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     contact_id: Mapped[int] = mapped_column(ForeignKey("contacts.id"), nullable=False, index=True)
+
+    # Workspace association (nullable for migration, will be required after data migration)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+
+    # Agent that created this appointment (UUID reference)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("agents.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Appointment details
     scheduled_at: Mapped[datetime] = mapped_column(
@@ -44,6 +62,7 @@ class Appointment(Base, TimestampMixin):
     created_by_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships
+    workspace: Mapped["Workspace | None"] = relationship("Workspace", back_populates="appointments")
     contact: Mapped["Contact"] = relationship("Contact", back_populates="appointments")
 
     def __repr__(self) -> str:

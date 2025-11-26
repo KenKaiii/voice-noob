@@ -318,7 +318,9 @@ class CRMTools:
             return {"success": False, "error": str(e)}
 
     async def check_availability(
-        self, date: str, duration_minutes: int = 30  # noqa: ARG002
+        self,
+        date: str,
+        duration_minutes: int = 30,  # noqa: ARG002
     ) -> dict[str, Any]:
         """Check available time slots for a date.
 
@@ -341,12 +343,8 @@ class CRMTools:
                 .join(Contact)
                 .where(
                     Contact.user_id == user_id_int,
-                    Appointment.scheduled_at >= datetime.combine(
-                        target_date, datetime.min.time()
-                    ),
-                    Appointment.scheduled_at < datetime.combine(
-                        target_date, datetime.max.time()
-                    ),
+                    Appointment.scheduled_at >= datetime.combine(target_date, datetime.min.time()),
+                    Appointment.scheduled_at < datetime.combine(target_date, datetime.max.time()),
                     Appointment.status == "scheduled",
                 )
             )
@@ -357,9 +355,7 @@ class CRMTools:
             # Simple availability: 9 AM to 5 PM, hourly slots
             available_slots = []
             for hour in range(9, 17):  # 9 AM to 5 PM
-                slot_time = datetime.combine(target_date, datetime.min.time()).replace(
-                    hour=hour
-                )
+                slot_time = datetime.combine(target_date, datetime.min.time()).replace(hour=hour)
 
                 # Check if slot conflicts with existing appointments
                 is_available = True

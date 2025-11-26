@@ -45,9 +45,7 @@ class ToolRegistry:
 
         return tools
 
-    async def execute_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute a tool by routing to appropriate handler.
 
         Args:

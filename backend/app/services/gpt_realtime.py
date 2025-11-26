@@ -90,7 +90,9 @@ class GPTRealtimeSession:
         if not self.client:
             raise ValueError("OpenAI client not initialized")
 
-        self.logger.info("connecting_to_openai_realtime", model="gpt-4o-realtime-preview-2024-12-17")
+        self.logger.info(
+            "connecting_to_openai_realtime", model="gpt-4o-realtime-preview-2024-12-17"
+        )
 
         try:
             # Use official SDK's realtime.connect() method
@@ -106,13 +108,19 @@ class GPTRealtimeSession:
             self.logger.info("connected_to_openai_realtime")
 
         except Exception as e:
-            self.logger.exception("realtime_connection_failed", error=str(e), error_type=type(e).__name__)
+            self.logger.exception(
+                "realtime_connection_failed", error=str(e), error_type=type(e).__name__
+            )
             raise
 
     async def _configure_session(self) -> None:
         """Configure Realtime API session with agent settings and internal tools."""
         if not self.connection or not self.tool_registry:
-            self.logger.warning("session_config_skipped", has_connection=bool(self.connection), has_registry=bool(self.tool_registry))
+            self.logger.warning(
+                "session_config_skipped",
+                has_connection=bool(self.connection),
+                has_registry=bool(self.tool_registry),
+            )
             return
 
         # Get tool definitions from registry
@@ -149,7 +157,9 @@ class GPTRealtimeSession:
                 tool_count=len(tools),
             )
         except Exception as e:
-            self.logger.exception("session_config_failed", error=str(e), error_type=type(e).__name__)
+            self.logger.exception(
+                "session_config_failed", error=str(e), error_type=type(e).__name__
+            )
             raise
 
     async def handle_tool_call(self, tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -229,7 +239,9 @@ class GPTRealtimeSession:
         """
         call_id = event.call_id
         name = event.name
-        arguments = json.loads(event.arguments) if isinstance(event.arguments, str) else event.arguments
+        arguments = (
+            json.loads(event.arguments) if isinstance(event.arguments, str) else event.arguments
+        )
 
         # Execute tool via internal tool registry
         result = await self.handle_tool_call({"name": name, "arguments": arguments})
@@ -269,7 +281,11 @@ class GPTRealtimeSession:
 
             # Use SDK's input_audio_buffer.append method
             await self.connection.input_audio_buffer.append(audio=audio_base64)
-            self.logger.debug("audio_sent_to_realtime", size_bytes=len(audio_data), base64_length=len(audio_base64))
+            self.logger.debug(
+                "audio_sent_to_realtime",
+                size_bytes=len(audio_data),
+                base64_length=len(audio_base64),
+            )
         except Exception as e:
             self.logger.exception("send_audio_error", error=str(e), error_type=type(e).__name__)
 

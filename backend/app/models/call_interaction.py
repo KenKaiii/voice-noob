@@ -1,15 +1,17 @@
 """CallInteraction model for CRM - tracks voice agent calls."""
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.contact import Contact
+    from app.models.workspace import Workspace
 
 
 class CallInteraction(Base, TimestampMixin):
@@ -19,6 +21,14 @@ class CallInteraction(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     contact_id: Mapped[int] = mapped_column(ForeignKey("contacts.id"), nullable=False, index=True)
+
+    # Workspace association (nullable for migration, will be required after data migration)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
     # Call details
     call_started_at: Mapped[datetime] = mapped_column(
@@ -54,6 +64,9 @@ class CallInteraction(Base, TimestampMixin):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True, deferred=True)
 
     # Relationships
+    workspace: Mapped["Workspace | None"] = relationship(
+        "Workspace", back_populates="call_interactions"
+    )
     contact: Mapped["Contact"] = relationship("Contact", back_populates="call_interactions")
 
     def __repr__(self) -> str:

@@ -57,9 +57,7 @@ async def get_settings(
     Returns:
         Settings with masked API keys
     """
-    result = await db.execute(
-        select(UserSettings).where(UserSettings.user_id == user_id)
-    )
+    result = await db.execute(select(UserSettings).where(UserSettings.user_id == user_id))
     settings = result.scalar_one_or_none()
 
     if not settings:
@@ -96,9 +94,7 @@ async def update_settings(
     Returns:
         Success message
     """
-    result = await db.execute(
-        select(UserSettings).where(UserSettings.user_id == user_id)
-    )
+    result = await db.execute(select(UserSettings).where(UserSettings.user_id == user_id))
     settings = result.scalar_one_or_none()
 
     if settings:
@@ -138,9 +134,7 @@ async def update_settings(
     return {"message": "Settings updated successfully"}
 
 
-async def get_user_api_keys(
-    user_id: uuid.UUID, db: AsyncSession
-) -> UserSettings | None:
+async def get_user_api_keys(user_id: uuid.UUID, db: AsyncSession) -> UserSettings | None:
     """Get user API keys for internal use.
 
     Args:
@@ -150,7 +144,5 @@ async def get_user_api_keys(
     Returns:
         UserSettings or None
     """
-    result = await db.execute(
-        select(UserSettings).where(UserSettings.user_id == user_id)
-    )
+    result = await db.execute(select(UserSettings).where(UserSettings.user_id == user_id))
     return result.scalar_one_or_none()
