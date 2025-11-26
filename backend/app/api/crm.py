@@ -284,10 +284,16 @@ async def create_contact(
             contact.phone_number,
         )
 
-        # Invalidate CRM stats cache after creating a contact
+        # Invalidate CRM caches after creating a contact
         try:
-            invalidated = await cache_invalidate("crm:stats:*")
-            logger.debug("Invalidated %d cache keys after contact creation", invalidated)
+            # Invalidate contacts list cache so new contacts appear immediately
+            list_invalidated = await cache_invalidate(f"crm:contacts:list:{user_id}:*")
+            stats_invalidated = await cache_invalidate("crm:stats:*")
+            logger.debug(
+                "Invalidated %d list cache keys and %d stats cache keys after contact creation",
+                list_invalidated,
+                stats_invalidated,
+            )
         except Exception:
             logger.exception("Failed to invalidate cache after contact creation")
 

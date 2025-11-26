@@ -2,8 +2,12 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
+import { useRouter } from "next/navigation";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import * as z from "zod";
 import Link from "next/link";
+import { createAgent, type CreateAgentRequest } from "@/lib/api/agents";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -84,17 +88,49 @@ const defaultValues: Partial<AgentFormValues> = {
 };
 
 export default function NewAgentPage() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+
   const form = useForm<AgentFormValues>({
     resolver: zodResolver(agentFormSchema),
     defaultValues,
   });
 
+  const createAgentMutation = useMutation({
+    mutationFn: createAgent,
+    onSuccess: () => {
+      toast.success("Agent created successfully");
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
+      router.push("/dashboard/agents");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to create agent");
+    },
+  });
+
   function onSubmit(data: AgentFormValues) {
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.log("Creating agent:", data.name);
+    // Map form data to API request format
+    // Determine pricing tier based on LLM provider
+    let pricingTier: "budget" | "balanced" | "premium" = "balanced";
+    if (data.llmProvider === "openai-realtime") {
+      pricingTier = "premium";
+    } else if (data.llmModel === "gpt-4o-mini" || data.llmModel === "claude-haiku-4-5") {
+      pricingTier = "budget";
     }
-    // TODO: Implement API endpoint POST /api/v1/agents and connect here
+
+    const request: CreateAgentRequest = {
+      name: data.name,
+      description: data.description,
+      pricing_tier: pricingTier,
+      system_prompt: data.systemPrompt,
+      language: data.language,
+      enabled_tools: data.enabledTools,
+      phone_number_id: data.phoneNumberId,
+      enable_recording: data.enableRecording,
+      enable_transcript: data.enableTranscript,
+    };
+
+    createAgentMutation.mutate(request);
   }
 
   return (
@@ -503,9 +539,9 @@ export default function NewAgentPage() {
             <TabsContent value="tools" className="mt-6 space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Tools & Integrations</CardTitle>
+                  <CardTitle>Built-in Tools</CardTitle>
                   <CardDescription>
-                    Enable integrations for your agent to access external services
+                    Enable CRM and booking capabilities for your agent
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -515,74 +551,119 @@ export default function NewAgentPage() {
                     render={() => (
                       <FormItem>
                         <div className="mb-4">
-                          <FormLabel className="text-base">Available Tools</FormLabel>
+                          <FormLabel className="text-base">CRM & Booking Tools</FormLabel>
                           <FormDescription>
-                            Select which tools this agent can use during conversations. Connect
-                            integrations first on the{" "}
-                            <a
-                              href="/dashboard/integrations"
-                              className="text-primary underline"
-                              target="_blank"
-                            >
-                              Integrations page
-                            </a>
-                            .
+                            These tools allow your agent to search customers, create contacts, check
+                            availability, and book appointments.
                           </FormDescription>
                         </div>
                         <div className="space-y-2">
-                          {/* Popular tools quick toggles */}
-                          {["google-calendar", "salesforce", "hubspot", "notion", "slack"].map(
-                            (toolId) => (
-                              <FormField
-                                key={toolId}
-                                control={form.control}
-                                name="enabledTools"
-                                render={({ field }) => {
-                                  const toolConfig = {
-                                    "google-calendar": {
-                                      name: "Google Calendar",
-                                      desc: "Schedule meetings",
-                                    },
-                                    salesforce: { name: "Salesforce", desc: "Access CRM data" },
-                                    hubspot: { name: "HubSpot", desc: "Manage contacts" },
-                                    notion: { name: "Notion", desc: "Query databases" },
-                                    slack: { name: "Slack", desc: "Send messages" },
-                                  }[toolId];
+                          {/* Built-in CRM/Booking tools */}
+                          {[
+                            {
+                              id: "crm",
+                              name: "CRM Tools",
+                              desc: "Search customers, create contacts, manage customer data",
+                            },
+                            {
+                              id: "bookings",
+                              name: "Booking Tools",
+                              desc: "Check availability, book/cancel/reschedule appointments",
+                            },
+                          ].map((tool) => (
+                            <FormField
+                              key={tool.id}
+                              control={form.control}
+                              name="enabledTools"
+                              render={({ field }) => (
+                                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                                  <FormControl>
+                                    <input
+                                      type="checkbox"
+                                      className="mt-0.5 h-4 w-4"
+                                      checked={field.value?.includes(tool.id)}
+                                      onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        const current = field.value || [];
+                                        field.onChange(
+                                          checked
+                                            ? [...current, tool.id]
+                                            : current.filter((v) => v !== tool.id)
+                                        );
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <div className="space-y-1 leading-none">
+                                    <FormLabel className="cursor-pointer font-medium">
+                                      {tool.name}
+                                    </FormLabel>
+                                    <FormDescription>{tool.desc}</FormDescription>
+                                  </div>
+                                </FormItem>
+                              )}
+                            />
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </CardContent>
+              </Card>
 
-                                  return (
-                                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                                      <FormControl>
-                                        <input
-                                          type="checkbox"
-                                          className="mt-0.5 h-4 w-4"
-                                          checked={field.value?.includes(toolId)}
-                                          onChange={(e) => {
-                                            const checked = e.target.checked;
-                                            const current = field.value || [];
-                                            field.onChange(
-                                              checked
-                                                ? [...current, toolId]
-                                                : current.filter((v) => v !== toolId)
-                                            );
-                                          }}
-                                        />
-                                      </FormControl>
-                                      <div className="space-y-1 leading-none">
-                                        <FormLabel className="cursor-pointer font-medium">
-                                          {toolConfig?.name}
-                                        </FormLabel>
-                                        <FormDescription>{toolConfig?.desc}</FormDescription>
-                                      </div>
-                                    </FormItem>
-                                  );
-                                }}
-                              />
-                            )
-                          )}
+              <Card>
+                <CardHeader>
+                  <CardTitle>External Integrations</CardTitle>
+                  <CardDescription>
+                    Connect external services (coming soon)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FormField
+                    control={form.control}
+                    name="enabledTools"
+                    render={() => (
+                      <FormItem>
+                        <div className="space-y-2">
+                          {/* Future external integrations - currently disabled */}
+                          {[
+                            {
+                              id: "google-calendar",
+                              name: "Google Calendar",
+                              desc: "Schedule meetings",
+                            },
+                            { id: "salesforce", name: "Salesforce", desc: "Access CRM data" },
+                            { id: "hubspot", name: "HubSpot", desc: "Manage contacts" },
+                          ].map((tool) => (
+                            <FormField
+                              key={tool.id}
+                              control={form.control}
+                              name="enabledTools"
+                              render={() => (
+                                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 opacity-50">
+                                  <FormControl>
+                                    <input
+                                      type="checkbox"
+                                      className="mt-0.5 h-4 w-4"
+                                      disabled
+                                    />
+                                  </FormControl>
+                                  <div className="space-y-1 leading-none">
+                                    <FormLabel className="cursor-not-allowed font-medium">
+                                      {tool.name}
+                                    </FormLabel>
+                                    <FormDescription>
+                                      {tool.desc} (Coming soon)
+                                    </FormDescription>
+                                  </div>
+                                </FormItem>
+                              )}
+                            />
+                          ))}
                           <div className="pt-4">
                             <Button type="button" variant="outline" size="sm" asChild>
                               <Link href="/dashboard/integrations">
-                                View All Integrations ({15})
+                                Manage Integrations
                               </Link>
                             </Button>
                           </div>
@@ -710,10 +791,12 @@ export default function NewAgentPage() {
           </Tabs>
 
           <div className="flex justify-end gap-4">
-            <Button type="button" variant="outline" asChild>
+            <Button type="button" variant="outline" asChild disabled={createAgentMutation.isPending}>
               <Link href="/dashboard/agents">Cancel</Link>
             </Button>
-            <Button type="submit">Create Agent</Button>
+            <Button type="submit" disabled={createAgentMutation.isPending}>
+              {createAgentMutation.isPending ? "Creating..." : "Create Agent"}
+            </Button>
           </div>
         </form>
       </Form>

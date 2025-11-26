@@ -1,20 +1,26 @@
-"""WebSocket API for GPT Realtime voice calls."""
+"""WebRTC and WebSocket API for GPT Realtime voice calls."""
 
 import asyncio
 import json
 import uuid
 from typing import Any
 
+import httpx
 import structlog
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.settings import get_current_user_id, get_user_api_keys
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.agent import Agent
 from app.services.gpt_realtime import GPTRealtimeSession
+from app.services.tools.registry import ToolRegistry
 
 router = APIRouter(prefix="/ws", tags=["realtime"])
+webrtc_router = APIRouter(prefix="/api/v1/realtime", tags=["realtime-webrtc"])
 logger = structlog.get_logger()
 
 
@@ -50,33 +56,37 @@ async def realtime_websocket(
 
     try:
         # Load agent configuration
-        result = await db.execute(
-            select(Agent).where(Agent.id == uuid.UUID(agent_id))
-        )
+        result = await db.execute(select(Agent).where(Agent.id == uuid.UUID(agent_id)))
         agent = result.scalar_one_or_none()
 
         if not agent:
-            await websocket.send_json({
-                "type": "error",
-                "error": f"Agent {agent_id} not found",
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "error": f"Agent {agent_id} not found",
+                }
+            )
             await websocket.close()
             return
 
         if not agent.is_active:
-            await websocket.send_json({
-                "type": "error",
-                "error": "Agent is not active",
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "error": "Agent is not active",
+                }
+            )
             await websocket.close()
             return
 
         # Check if Premium tier (GPT Realtime only for Premium)
         if agent.pricing_tier != "premium":
-            await websocket.send_json({
-                "type": "error",
-                "error": "GPT Realtime only available for Premium tier agents",
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "error": "GPT Realtime only available for Premium tier agents",
+                }
+            )
             await websocket.close()
             return
 
@@ -101,17 +111,18 @@ async def realtime_websocket(
             agent_config=agent_config,
             session_id=session_id,
         ) as realtime_session:
-
             # Send ready signal to client
-            await websocket.send_json({
-                "type": "session.ready",
-                "session_id": session_id,
-                "agent": {
-                    "id": str(agent.id),
-                    "name": agent.name,
-                    "tier": agent.pricing_tier,
-                },
-            })
+            await websocket.send_json(
+                {
+                    "type": "session.ready",
+                    "session_id": session_id,
+                    "agent": {
+                        "id": str(agent.id),
+                        "name": agent.name,
+                        "tier": agent.pricing_tier,
+                    },
+                }
+            )
 
             # Start bidirectional streaming
             await _bridge_audio_streams(
@@ -125,10 +136,12 @@ async def realtime_websocket(
     except Exception as e:
         client_logger.exception("websocket_error", error=str(e))
         try:
-            await websocket.send_json({
-                "type": "error",
-                "error": str(e),
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "error": str(e),
+                }
+            )
         except Exception:
             pass
     finally:
@@ -198,18 +211,24 @@ async def _bridge_audio_streams(
 
                     # Handle tool calls internally
                     if event_type == "response.function_call_arguments.done":
-                        logger.info("handling_function_call", call_id=event.call_id, name=event.name)
+                        logger.info(
+                            "handling_function_call", call_id=event.call_id, name=event.name
+                        )
                         await realtime_session._handle_function_call(event)
 
                     # Forward events to client as JSON
-                    await client_ws.send_json({
-                        "type": event_type,
-                        "event": event.model_dump() if hasattr(event, "model_dump") else {},
-                    })
+                    await client_ws.send_json(
+                        {
+                            "type": event_type,
+                            "event": event.model_dump() if hasattr(event, "model_dump") else {},
+                        }
+                    )
                     logger.debug("event_forwarded_to_client", event_type=event_type)
 
                 except Exception as e:
-                    logger.exception("event_forward_error", error=str(e), error_type=type(e).__name__)
+                    logger.exception(
+                        "event_forward_error", error=str(e), error_type=type(e).__name__
+                    )
 
         except Exception as e:
             logger.exception("realtime_to_client_error", error=str(e), error_type=type(e).__name__)
@@ -220,3 +239,277 @@ async def _bridge_audio_streams(
         realtime_to_client(),
         return_exceptions=True,
     )
+
+
+# =============================================================================
+# WebRTC Endpoints for GPT Realtime
+# =============================================================================
+
+
+@webrtc_router.post("/session/{agent_id}")
+async def create_webrtc_session(
+    agent_id: str,
+    request: Request,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Create a WebRTC session for GPT Realtime API.
+
+    This endpoint implements the unified interface approach:
+    1. Receives SDP offer from client
+    2. Loads agent configuration and builds session config with tools
+    3. Forwards to OpenAI Realtime API
+    4. Returns SDP answer to client
+
+    Args:
+        agent_id: Agent UUID
+        request: HTTP request containing SDP offer
+        user_id: Current user ID
+        db: Database session
+
+    Returns:
+        SDP answer from OpenAI
+    """
+    session_logger = logger.bind(
+        endpoint="webrtc_session",
+        agent_id=agent_id,
+        user_id=str(user_id),
+    )
+
+    session_logger.info("webrtc_session_requested")
+
+    # Get SDP offer from request body
+    sdp_offer = await request.body()
+    if not sdp_offer:
+        raise HTTPException(status_code=400, detail="SDP offer required in request body")
+
+    # Load agent configuration
+    result = await db.execute(select(Agent).where(Agent.id == uuid.UUID(agent_id)))
+    agent = result.scalar_one_or_none()
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    if not agent.is_active:
+        raise HTTPException(status_code=400, detail="Agent is not active")
+
+    if agent.pricing_tier != "premium":
+        raise HTTPException(
+            status_code=400, detail="WebRTC Realtime only available for Premium tier agents"
+        )
+
+    session_logger.info(
+        "agent_loaded",
+        agent_name=agent.name,
+        tier=agent.pricing_tier,
+        tools_count=len(agent.enabled_tools),
+    )
+
+    # Get OpenAI API key
+    user_settings = await get_user_api_keys(user_id, db)
+    api_key = None
+    if user_settings and user_settings.openai_api_key:
+        api_key = user_settings.openai_api_key
+        session_logger.info("using_user_openai_key")
+    elif settings.OPENAI_API_KEY:
+        api_key = settings.OPENAI_API_KEY
+        session_logger.info("using_global_openai_key")
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="OpenAI API key not configured. Please add it in Settings.",
+        )
+
+    # Build tool definitions
+    tool_registry = ToolRegistry(db, user_id)
+    tools = tool_registry.get_all_tool_definitions(agent.enabled_tools)
+
+    # Build session configuration for OpenAI Realtime
+    session_config = {
+        "type": "realtime",
+        "model": "gpt-4o-realtime-preview-2024-12-17",
+        "instructions": agent.system_prompt or "You are a helpful voice assistant.",
+        "voice": "shimmer",
+        "input_audio_transcription": {"model": "whisper-1"},
+        "turn_detection": {
+            "type": "server_vad",
+            "threshold": 0.5,
+            "prefix_padding_ms": 300,
+            "silence_duration_ms": 500,
+        },
+    }
+
+    # Add tools if any are enabled
+    if tools:
+        session_config["tools"] = tools
+        session_config["tool_choice"] = "auto"
+
+    session_logger.info(
+        "creating_openai_session",
+        model=session_config["model"],
+        tool_count=len(tools),
+    )
+
+    # Create multipart form data for OpenAI API
+    try:
+        async with httpx.AsyncClient() as client:
+            # Prepare multipart form
+            files = {
+                "sdp": ("offer.sdp", sdp_offer, "application/sdp"),
+                "session": ("session.json", json.dumps(session_config), "application/json"),
+            }
+
+            response = await client.post(
+                "https://api.openai.com/v1/realtime/calls",
+                headers={"Authorization": f"Bearer {api_key}"},
+                files=files,
+                timeout=30.0,
+            )
+
+            if response.status_code != 200:
+                session_logger.error(
+                    "openai_api_error",
+                    status_code=response.status_code,
+                    response_text=response.text,
+                )
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"OpenAI API error: {response.text}",
+                )
+
+            sdp_answer = response.text
+            session_logger.info("webrtc_session_created")
+
+            return Response(content=sdp_answer, media_type="application/sdp")
+
+    except httpx.RequestError as e:
+        session_logger.exception("openai_request_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to connect to OpenAI: {e!s}")
+
+
+@webrtc_router.get("/token/{agent_id}")
+async def get_ephemeral_token(
+    agent_id: str,
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Get an ephemeral token for OpenAI Realtime API WebRTC connection.
+
+    This endpoint is used by the OpenAI Agents SDK to establish WebRTC connections.
+    It returns a short-lived ephemeral API key that can be used client-side.
+
+    Args:
+        agent_id: Agent UUID
+        user_id: Current user ID
+        db: Database session
+
+    Returns:
+        Ephemeral token response with client_secret value and session config
+    """
+    token_logger = logger.bind(
+        endpoint="ephemeral_token",
+        agent_id=agent_id,
+        user_id=str(user_id),
+    )
+
+    token_logger.info("ephemeral_token_requested")
+
+    # Load agent configuration
+    result = await db.execute(select(Agent).where(Agent.id == uuid.UUID(agent_id)))
+    agent = result.scalar_one_or_none()
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    if not agent.is_active:
+        raise HTTPException(status_code=400, detail="Agent is not active")
+
+    if agent.pricing_tier != "premium":
+        raise HTTPException(
+            status_code=400, detail="WebRTC Realtime only available for Premium tier agents"
+        )
+
+    # Get OpenAI API key
+    user_settings = await get_user_api_keys(user_id, db)
+    api_key = None
+    if user_settings and user_settings.openai_api_key:
+        api_key = user_settings.openai_api_key
+        token_logger.info("using_user_openai_key")
+    elif settings.OPENAI_API_KEY:
+        api_key = settings.OPENAI_API_KEY
+        token_logger.info("using_global_openai_key")
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="OpenAI API key not configured. Please add it in Settings.",
+        )
+
+    # Build minimal session configuration for ephemeral token request
+    # The SDK will configure instructions, voice, tools etc. after connection via data channel
+    # Using the latest 2025 model as per official OpenAI examples
+    session_config: dict[str, Any] = {
+        "model": "gpt-4o-realtime-preview-2025-06-03",
+        "modalities": ["audio", "text"],
+        "voice": "alloy",
+    }
+
+    token_logger.info(
+        "requesting_ephemeral_token",
+        model=session_config["model"],
+    )
+
+    # Request ephemeral token from OpenAI Realtime sessions endpoint
+    # The session_config is sent directly as the request body (not wrapped)
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.openai.com/v1/realtime/sessions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=session_config,
+                timeout=30.0,
+            )
+
+            if not response.is_success:
+                token_logger.error(
+                    "openai_token_error",
+                    status_code=response.status_code,
+                    response_text=response.text,
+                )
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"OpenAI API error: {response.text}",
+                )
+
+            token_data = response.json()
+            token_logger.info("ephemeral_token_created")
+
+            # Build tool definitions for the agent
+            tool_registry = ToolRegistry(db, user_id)
+            tools = tool_registry.get_all_tool_definitions(agent.enabled_tools)
+
+            token_logger.info(
+                "tools_prepared",
+                tool_count=len(tools),
+                enabled_tools=agent.enabled_tools,
+            )
+
+            # Return token data with agent info and tools
+            return {
+                "client_secret": token_data.get("client_secret", {}),
+                "agent": {
+                    "id": str(agent.id),
+                    "name": agent.name,
+                    "tier": agent.pricing_tier,
+                    "system_prompt": agent.system_prompt,
+                    "enabled_tools": agent.enabled_tools,
+                },
+                "session_config": session_config,
+                "tools": tools,
+            }
+
+    except httpx.RequestError as e:
+        token_logger.exception("openai_token_request_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to connect to OpenAI: {e!s}") from e

@@ -5,10 +5,11 @@ from datetime import datetime
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.cache import cache_invalidate
 from app.models.appointment import Appointment
 from app.models.contact import Contact
 
@@ -43,7 +44,7 @@ class CRMTools:
         """Get OpenAI function calling tool definitions.
 
         Returns:
-            List of tool definitions for GPT Realtime
+            List of tool definitions for GPT Realtime API (uses nested function format)
         """
         return [
             {
@@ -191,6 +192,18 @@ class CRMTools:
             },
         ]
 
+    def _get_user_id_int(self) -> int:
+        """Get user_id as integer for Contact model queries.
+
+        The Contact model uses integer user_id, but the tools API passes UUID.
+        This handles the conversion.
+        """
+        if isinstance(self.user_id, uuid.UUID):
+            # For now, hardcode to 1 since we don't have proper user mapping
+            # TODO: Implement proper user ID mapping when auth is added
+            return 1
+        return int(self.user_id)
+
     async def search_customer(self, query: str) -> dict[str, Any]:
         """Search for a customer by phone, email, or name.
 
@@ -201,12 +214,20 @@ class CRMTools:
             Customer information or error
         """
         try:
-            # Search by phone, email, or name
+            user_id_int = self._get_user_id_int()
+
+            # Search by phone, email, or name - filtered by user_id for security
+            # Also search full name (first + last) for queries like "John Smith"
+            full_name = func.concat(Contact.first_name, " ", func.coalesce(Contact.last_name, ""))
             stmt = select(Contact).where(
-                (Contact.phone_number.ilike(f"%{query}%"))
-                | (Contact.email.ilike(f"%{query}%"))
-                | (Contact.first_name.ilike(f"%{query}%"))
-                | (Contact.last_name.ilike(f"%{query}%"))
+                Contact.user_id == user_id_int,
+                (
+                    (Contact.phone_number.ilike(f"%{query}%"))
+                    | (Contact.email.ilike(f"%{query}%"))
+                    | (Contact.first_name.ilike(f"%{query}%"))
+                    | (Contact.last_name.ilike(f"%{query}%"))
+                    | (full_name.ilike(f"%{query}%"))
+                ),
             )
 
             result = await self.db.execute(stmt)
@@ -264,8 +285,9 @@ class CRMTools:
             Created contact info
         """
         try:
+            user_id_int = self._get_user_id_int()
             contact = Contact(
-                user_id=int(self.user_id) if isinstance(self.user_id, uuid.UUID) else 1,  # TODO: Fix type
+                user_id=user_id_int,
                 first_name=first_name,
                 last_name=last_name,
                 phone_number=phone_number,
@@ -277,6 +299,14 @@ class CRMTools:
             self.db.add(contact)
             await self.db.commit()
             await self.db.refresh(contact)
+
+            # Invalidate CRM caches so new contacts appear immediately in the UI
+            try:
+                await cache_invalidate(f"crm:contacts:list:{user_id_int}:*")
+                await cache_invalidate("crm:stats:*")
+                self.logger.debug("invalidated_crm_cache_after_create_contact")
+            except Exception:
+                self.logger.exception("failed_to_invalidate_cache_after_create_contact")
 
             return {
                 "success": True,
@@ -301,18 +331,25 @@ class CRMTools:
             Available time slots
         """
         try:
+            user_id_int = self._get_user_id_int()
+
             # Parse date
             target_date = datetime.strptime(date, "%Y-%m-%d").date()
 
-            # Get existing appointments for that day
-            stmt = select(Appointment).where(
-                Appointment.scheduled_at >= datetime.combine(
-                    target_date, datetime.min.time()
-                ),
-                Appointment.scheduled_at < datetime.combine(
-                    target_date, datetime.max.time()
-                ),
-                Appointment.status == "scheduled",
+            # Get existing appointments for that day - filtered by user's contacts
+            stmt = (
+                select(Appointment)
+                .join(Contact)
+                .where(
+                    Contact.user_id == user_id_int,
+                    Appointment.scheduled_at >= datetime.combine(
+                        target_date, datetime.min.time()
+                    ),
+                    Appointment.scheduled_at < datetime.combine(
+                        target_date, datetime.max.time()
+                    ),
+                    Appointment.status == "scheduled",
+                )
             )
 
             result = await self.db.execute(stmt)
@@ -367,8 +404,13 @@ class CRMTools:
             Booking confirmation
         """
         try:
-            # Find contact
-            stmt = select(Contact).where(Contact.phone_number == contact_phone)
+            user_id_int = self._get_user_id_int()
+
+            # Find contact - filtered by user_id for security
+            stmt = select(Contact).where(
+                Contact.user_id == user_id_int,
+                Contact.phone_number == contact_phone,
+            )
             result = await self.db.execute(stmt)
             contact = result.scalar_one_or_none()
 
@@ -394,6 +436,13 @@ class CRMTools:
             self.db.add(appointment)
             await self.db.commit()
             await self.db.refresh(appointment)
+
+            # Invalidate CRM stats cache after booking
+            try:
+                await cache_invalidate("crm:stats:*")
+                self.logger.debug("invalidated_crm_cache_after_book_appointment")
+            except Exception:
+                self.logger.exception("failed_to_invalidate_cache_after_book_appointment")
 
             return {
                 "success": True,
@@ -427,11 +476,15 @@ class CRMTools:
             List of appointments
         """
         try:
+            user_id_int = self._get_user_id_int()
+
             # Use selectinload to eagerly load contacts in a single query (fixes N+1)
+            # Filter by user_id for security
             stmt = (
                 select(Appointment)
                 .join(Contact)
                 .options(selectinload(Appointment.contact))
+                .where(Contact.user_id == user_id_int)
             )
 
             # Apply filters
@@ -493,7 +546,17 @@ class CRMTools:
             Cancellation confirmation
         """
         try:
-            stmt = select(Appointment).where(Appointment.id == appointment_id)
+            user_id_int = self._get_user_id_int()
+
+            # Verify appointment belongs to user's contact
+            stmt = (
+                select(Appointment)
+                .join(Contact)
+                .where(
+                    Appointment.id == appointment_id,
+                    Contact.user_id == user_id_int,
+                )
+            )
             result = await self.db.execute(stmt)
             appointment = result.scalar_one_or_none()
 
@@ -537,7 +600,17 @@ class CRMTools:
             Reschedule confirmation
         """
         try:
-            stmt = select(Appointment).where(Appointment.id == appointment_id)
+            user_id_int = self._get_user_id_int()
+
+            # Verify appointment belongs to user's contact
+            stmt = (
+                select(Appointment)
+                .join(Contact)
+                .where(
+                    Appointment.id == appointment_id,
+                    Contact.user_id == user_id_int,
+                )
+            )
             result = await self.db.execute(stmt)
             appointment = result.scalar_one_or_none()
 

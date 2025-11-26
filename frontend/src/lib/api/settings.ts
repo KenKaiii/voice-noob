@@ -4,6 +4,33 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+/**
+ * Fetch with timeout to prevent hanging requests
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 10000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Request timed out - please check if the backend is running");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export interface SettingsResponse {
   openai_api_key_set: boolean;
   deepgram_api_key_set: boolean;
@@ -23,7 +50,7 @@ export interface UpdateSettingsRequest {
 }
 
 export async function fetchSettings(): Promise<SettingsResponse> {
-  const response = await fetch(`${API_BASE}/api/v1/settings`);
+  const response = await fetchWithTimeout(`${API_BASE}/api/v1/settings`);
   if (!response.ok) {
     throw new Error(`Failed to fetch settings: ${response.statusText}`);
   }
@@ -31,7 +58,7 @@ export async function fetchSettings(): Promise<SettingsResponse> {
 }
 
 export async function updateSettings(request: UpdateSettingsRequest): Promise<{ message: string }> {
-  const response = await fetch(`${API_BASE}/api/v1/settings`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/v1/settings`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
