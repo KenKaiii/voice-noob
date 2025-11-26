@@ -1,6 +1,7 @@
 """GPT Realtime API service for Premium tier voice agents."""
 
 import json
+import types
 import uuid
 from typing import Any
 
@@ -197,7 +198,7 @@ class GPTRealtimeSession:
 
                     # Handle function/tool calls
                     if event_type == "response.function_call_arguments.done":
-                        await self._handle_function_call(event)
+                        await self.handle_function_call_event(event)
 
                     # Handle audio output
                     elif event_type == "response.audio.delta":
@@ -220,7 +221,7 @@ class GPTRealtimeSession:
             self.logger.exception("realtime_event_loop_error", error=str(e))
             raise
 
-    async def _handle_function_call(self, event: Any) -> None:
+    async def handle_function_call_event(self, event: Any) -> None:
         """Handle function call from GPT Realtime.
 
         Args:
@@ -295,6 +296,11 @@ class GPTRealtimeSession:
         await self.initialize()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         """Async context manager exit."""
         await self.cleanup()

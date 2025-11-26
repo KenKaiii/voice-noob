@@ -1,8 +1,10 @@
 """WebRTC and WebSocket API for GPT Realtime voice calls."""
 
 import asyncio
+import contextlib
 import json
 import uuid
+from http import HTTPStatus
 from typing import Any
 
 import httpx
@@ -135,20 +137,16 @@ async def realtime_websocket(
         client_logger.info("websocket_disconnected")
     except Exception as e:
         client_logger.exception("websocket_error", error=str(e))
-        try:
+        with contextlib.suppress(Exception):
             await websocket.send_json(
                 {
                     "type": "error",
                     "error": str(e),
                 }
             )
-        except Exception:
-            pass
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await websocket.close()
-        except Exception:
-            pass
         client_logger.info("websocket_closed")
 
 
@@ -214,7 +212,7 @@ async def _bridge_audio_streams(
                         logger.info(
                             "handling_function_call", call_id=event.call_id, name=event.name
                         )
-                        await realtime_session._handle_function_call(event)
+                        await realtime_session.handle_function_call_event(event)
 
                     # Forward events to client as JSON
                     await client_ws.send_json(
@@ -325,7 +323,7 @@ async def create_webrtc_session(
     tools = tool_registry.get_all_tool_definitions(agent.enabled_tools)
 
     # Build session configuration for OpenAI Realtime
-    session_config = {
+    session_config: dict[str, Any] = {
         "type": "realtime",
         "model": "gpt-4o-realtime-preview-2024-12-17",
         "instructions": agent.system_prompt or "You are a helpful voice assistant.",
@@ -353,11 +351,11 @@ async def create_webrtc_session(
     # Create multipart form data for OpenAI API
     try:
         async with httpx.AsyncClient() as client:
-            # Prepare multipart form
-            files = {
-                "sdp": ("offer.sdp", sdp_offer, "application/sdp"),
-                "session": ("session.json", json.dumps(session_config), "application/json"),
-            }
+            # Prepare multipart form - properly typed for httpx
+            files: list[tuple[str, tuple[str, bytes | str, str]]] = [
+                ("sdp", ("offer.sdp", sdp_offer, "application/sdp")),
+                ("session", ("session.json", json.dumps(session_config), "application/json")),
+            ]
 
             response = await client.post(
                 "https://api.openai.com/v1/realtime/calls",
@@ -366,7 +364,7 @@ async def create_webrtc_session(
                 timeout=30.0,
             )
 
-            if response.status_code != 200:
+            if response.status_code != HTTPStatus.OK:
                 session_logger.error(
                     "openai_api_error",
                     status_code=response.status_code,
@@ -384,7 +382,7 @@ async def create_webrtc_session(
 
     except httpx.RequestError as e:
         session_logger.exception("openai_request_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to connect to OpenAI: {e!s}")
+        raise HTTPException(status_code=500, detail=f"Failed to connect to OpenAI: {e!s}") from e
 
 
 @webrtc_router.get("/token/{agent_id}")

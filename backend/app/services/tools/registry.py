@@ -43,10 +43,6 @@ class ToolRegistry:
         if "crm" in enabled_tools or "bookings" in enabled_tools:
             tools.extend(CRMTools.get_tool_definitions())
 
-        # Add more internal tools here as needed
-        # if "email" in enabled_tools:
-        #     tools.extend(EmailTools.get_tool_definitions())
-
         return tools
 
     async def execute_tool(

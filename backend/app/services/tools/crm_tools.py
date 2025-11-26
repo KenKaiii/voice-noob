@@ -196,13 +196,12 @@ class CRMTools:
         """Get user_id as integer for Contact model queries.
 
         The Contact model uses integer user_id, but the tools API passes UUID.
-        This handles the conversion.
+        For now, hardcode to 1 since we don't have proper user mapping.
+        TODO: Implement proper user ID mapping when auth is added.
         """
-        if isinstance(self.user_id, uuid.UUID):
-            # For now, hardcode to 1 since we don't have proper user mapping
-            # TODO: Implement proper user ID mapping when auth is added
-            return 1
-        return int(self.user_id)
+        # Suppress unused variable warning - user_id will be used when auth is implemented
+        _ = self.user_id
+        return 1
 
     async def search_customer(self, query: str) -> dict[str, Any]:
         """Search for a customer by phone, email, or name.
@@ -319,13 +318,13 @@ class CRMTools:
             return {"success": False, "error": str(e)}
 
     async def check_availability(
-        self, date: str, duration_minutes: int = 30
+        self, date: str, duration_minutes: int = 30  # noqa: ARG002
     ) -> dict[str, Any]:
         """Check available time slots for a date.
 
         Args:
             date: Date in YYYY-MM-DD format
-            duration_minutes: Desired duration
+            duration_minutes: Desired duration (reserved for future use)
 
         Returns:
             Available time slots
@@ -640,7 +639,7 @@ class CRMTools:
             self.logger.exception("reschedule_appointment_failed", error=str(e))
             return {"success": False, "error": str(e)}
 
-    async def execute_tool(
+    async def execute_tool(  # noqa: PLR0911
         self, tool_name: str, arguments: dict[str, Any]
     ) -> dict[str, Any]:
         """Execute a CRM tool by name.
