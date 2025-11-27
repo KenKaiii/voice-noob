@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
@@ -197,6 +197,33 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
         }
       : undefined,
   });
+
+  // Watch the LLM provider to conditionally show/hide Voice tab
+  const llmProvider = form.watch("llmProvider");
+  const isRealtimeProvider = llmProvider === "openai-realtime";
+
+  // Track if this is the initial load to avoid resetting model on first render
+  const isInitialLoad = useRef(true);
+
+  // Auto-select appropriate model when provider changes
+  useEffect(() => {
+    if (isInitialLoad.current) {
+      isInitialLoad.current = false;
+      return;
+    }
+
+    const defaultModels: Record<string, string> = {
+      "openai-realtime": "gpt-realtime",
+      openai: "gpt-4o",
+      anthropic: "claude-sonnet-4-5",
+      google: "gemini-2.5-flash",
+    };
+
+    const defaultModel = defaultModels[llmProvider];
+    if (defaultModel) {
+      form.setValue("llmModel", defaultModel);
+    }
+  }, [llmProvider, form]);
 
   const updateAgentMutation = useMutation({
     mutationFn: (data: UpdateAgentRequest) => updateAgent(agentId, data),
@@ -409,9 +436,11 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
           className="space-y-6"
         >
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList
+              className={cn("grid w-full", isRealtimeProvider ? "grid-cols-4" : "grid-cols-5")}
+            >
               <TabTriggerWithErrors value="basic" label="Basic" />
-              <TabTriggerWithErrors value="voice" label="Voice & Speech" />
+              {!isRealtimeProvider && <TabTriggerWithErrors value="voice" label="Voice & Speech" />}
               <TabTriggerWithErrors value="llm" label="AI Model" />
               <TabTriggerWithErrors value="tools" label="Tools" />
               <TabTriggerWithErrors value="advanced" label="Advanced" />
@@ -570,171 +599,175 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
               </Card>
             </TabsContent>
 
-            <TabsContent value="voice" className="mt-6 space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    Text-to-Speech (TTS)
-                    <InfoTooltip content="TTS converts your agent's text responses into natural-sounding speech. Different providers offer varying quality, latency, and voice options." />
-                  </CardTitle>
-                  <CardDescription>Configure how your agent speaks</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="ttsProvider"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>TTS Provider</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="elevenlabs">ElevenLabs (Recommended)</SelectItem>
-                            <SelectItem value="openai">OpenAI TTS</SelectItem>
-                            <SelectItem value="google">Google Gemini TTS</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>Choose your text-to-speech provider</FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+            {!isRealtimeProvider && (
+              <TabsContent value="voice" className="mt-6 space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      Text-to-Speech (TTS)
+                      <InfoTooltip content="TTS converts your agent's text responses into natural-sounding speech. Different providers offer varying quality, latency, and voice options." />
+                    </CardTitle>
+                    <CardDescription>Configure how your agent speaks</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="ttsProvider"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>TTS Provider</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="elevenlabs">ElevenLabs (Recommended)</SelectItem>
+                              <SelectItem value="openai">OpenAI TTS</SelectItem>
+                              <SelectItem value="google">Google Gemini TTS</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>Choose your text-to-speech provider</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                  <FormField
-                    control={form.control}
-                    name="elevenLabsModel"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>ElevenLabs Model</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="turbo-v2.5">
-                              Turbo v2.5 (Recommended - Best Quality)
-                            </SelectItem>
-                            <SelectItem value="flash-v2.5">
-                              Flash v2.5 (Fastest - 75ms latency)
-                            </SelectItem>
-                            <SelectItem value="eleven-multilingual-v2">
-                              Multilingual v2 (29 languages)
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Turbo v2.5: ~300ms latency, best quality | Flash v2.5: ~75ms latency
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                    <FormField
+                      control={form.control}
+                      name="elevenLabsModel"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>ElevenLabs Model</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="turbo-v2.5">
+                                Turbo v2.5 (Recommended - Best Quality)
+                              </SelectItem>
+                              <SelectItem value="flash-v2.5">
+                                Flash v2.5 (Fastest - 75ms latency)
+                              </SelectItem>
+                              <SelectItem value="eleven-multilingual-v2">
+                                Multilingual v2 (29 languages)
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Turbo v2.5: ~300ms latency, best quality | Flash v2.5: ~75ms latency
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                  <FormField
-                    control={form.control}
-                    name="elevenLabsVoiceId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Voice</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a voice" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="21m00Tcm4TlvDq8ikWAM">
-                              Rachel (Female, American)
-                            </SelectItem>
-                            <SelectItem value="ErXwobaYiN019PkySvjV">
-                              Antoni (Male, American)
-                            </SelectItem>
-                            <SelectItem value="MF3mGyEYCl7XYWbV9V6O">
-                              Elli (Female, American)
-                            </SelectItem>
-                            <SelectItem value="pNInz6obpgDQGcFmaJgB">
-                              Adam (Male, American)
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              </Card>
+                    <FormField
+                      control={form.control}
+                      name="elevenLabsVoiceId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Voice</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a voice" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="21m00Tcm4TlvDq8ikWAM">
+                                Rachel (Female, American)
+                              </SelectItem>
+                              <SelectItem value="ErXwobaYiN019PkySvjV">
+                                Antoni (Male, American)
+                              </SelectItem>
+                              <SelectItem value="MF3mGyEYCl7XYWbV9V6O">
+                                Elli (Female, American)
+                              </SelectItem>
+                              <SelectItem value="pNInz6obpgDQGcFmaJgB">
+                                Adam (Male, American)
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </CardContent>
+                </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    Speech-to-Text (STT)
-                    <InfoTooltip content="STT converts caller speech into text for the AI to understand. Accuracy is measured by Word Error Rate (WER) - lower is better. Deepgram Nova-3 has 6.84% WER." />
-                  </CardTitle>
-                  <CardDescription>Configure how your agent listens</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="sttProvider"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>STT Provider</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="deepgram">Deepgram (Recommended)</SelectItem>
-                            <SelectItem value="openai">OpenAI Whisper</SelectItem>
-                            <SelectItem value="google">Google Gemini STT</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Deepgram Nova-3: 6.84% WER, multilingual, PII redaction
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      Speech-to-Text (STT)
+                      <InfoTooltip content="STT converts caller speech into text for the AI to understand. Accuracy is measured by Word Error Rate (WER) - lower is better. Deepgram Nova-3 has 6.84% WER." />
+                    </CardTitle>
+                    <CardDescription>Configure how your agent listens</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="sttProvider"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>STT Provider</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="deepgram">Deepgram (Recommended)</SelectItem>
+                              <SelectItem value="openai">OpenAI Whisper</SelectItem>
+                              <SelectItem value="google">Google Gemini STT</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Deepgram Nova-3: 6.84% WER, multilingual, PII redaction
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                  <FormField
-                    control={form.control}
-                    name="deepgramModel"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Deepgram Model</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="nova-3">Nova-3 (Latest - 54% better WER)</SelectItem>
-                            <SelectItem value="nova-2">
-                              Nova-2 (25% cheaper, still excellent)
-                            </SelectItem>
-                            <SelectItem value="enhanced">Enhanced</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Nova-3: Multilingual, keyterm prompting, PII redaction
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
+                    <FormField
+                      control={form.control}
+                      name="deepgramModel"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Deepgram Model</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="nova-3">
+                                Nova-3 (Latest - 54% better WER)
+                              </SelectItem>
+                              <SelectItem value="nova-2">
+                                Nova-2 (25% cheaper, still excellent)
+                              </SelectItem>
+                              <SelectItem value="enhanced">Enhanced</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Nova-3: Multilingual, keyterm prompting, PII redaction
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
 
             <TabsContent value="llm" className="mt-6 space-y-4">
               <Card>
@@ -788,31 +821,54 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="gpt-realtime">
-                              gpt-realtime (Best for Voice - Nov 2025)
-                            </SelectItem>
-                            <SelectItem value="gpt-4o">
-                              GPT-4o (Multimodal - 232ms latency)
-                            </SelectItem>
-                            <SelectItem value="gpt-4o-mini">
-                              GPT-4o-mini (25x cheaper, fast)
-                            </SelectItem>
-                            <SelectItem value="claude-sonnet-4-5">
-                              Claude Sonnet 4.5 (Sep 2025 - Best coding/agents)
-                            </SelectItem>
-                            <SelectItem value="claude-opus-4-1">
-                              Claude Opus 4.1 (Aug 2025 - Most capable)
-                            </SelectItem>
-                            <SelectItem value="claude-haiku-4-5">
-                              Claude Haiku 4.5 (Oct 2025 - Fast & cheap)
-                            </SelectItem>
-                            <SelectItem value="gemini-2.5-flash">
-                              Gemini 2.5 Flash (Multimodal voice)
-                            </SelectItem>
+                            {llmProvider === "openai-realtime" && (
+                              <SelectItem value="gpt-realtime">
+                                gpt-4o-realtime (Best for Voice)
+                              </SelectItem>
+                            )}
+                            {llmProvider === "openai" && (
+                              <>
+                                <SelectItem value="gpt-4o">
+                                  GPT-4o (Multimodal - 232ms latency)
+                                </SelectItem>
+                                <SelectItem value="gpt-4o-mini">
+                                  GPT-4o-mini (25x cheaper, fast)
+                                </SelectItem>
+                              </>
+                            )}
+                            {llmProvider === "anthropic" && (
+                              <>
+                                <SelectItem value="claude-sonnet-4-5">
+                                  Claude Sonnet 4.5 (Best coding/agents)
+                                </SelectItem>
+                                <SelectItem value="claude-opus-4-1">
+                                  Claude Opus 4.1 (Most capable)
+                                </SelectItem>
+                                <SelectItem value="claude-haiku-4-5">
+                                  Claude Haiku 4.5 (Fast & cheap)
+                                </SelectItem>
+                              </>
+                            )}
+                            {llmProvider === "google" && (
+                              <>
+                                <SelectItem value="gemini-2.5-flash">
+                                  Gemini 2.5 Flash (Multimodal)
+                                </SelectItem>
+                                <SelectItem value="gemini-2.5-pro">
+                                  Gemini 2.5 Pro (Most capable)
+                                </SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          gpt-realtime: Voice | Claude Sonnet 4.5: Agents/Coding | Haiku 4.5: Budget
+                          {llmProvider === "openai-realtime" &&
+                            "End-to-end voice model with built-in TTS/STT"}
+                          {llmProvider === "openai" &&
+                            "GPT-4o: Best quality | GPT-4o-mini: Budget-friendly"}
+                          {llmProvider === "anthropic" &&
+                            "Sonnet: Best value | Opus: Most capable | Haiku: Fastest"}
+                          {llmProvider === "google" && "Flash: Fast & cheap | Pro: Most capable"}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

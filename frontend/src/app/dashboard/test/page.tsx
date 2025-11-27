@@ -3,13 +3,11 @@
 /* eslint-disable no-console -- Debug logging is intentional for WebRTC/audio troubleshooting */
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { fetchAgents } from "@/lib/api/agents";
+import { fetchAgents, updateAgent } from "@/lib/api/agents";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Phone, PhoneOff, Mic, MicOff, User, Bot, Settings2 } from "lucide-react";
+import { Play, Save } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -18,13 +16,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
 import { RealtimeAgent, RealtimeSession, type RealtimeItem } from "@openai/agents/realtime";
 
 type TranscriptItem = {
   id: string;
-  speaker: string;
+  speaker: "user" | "assistant" | "system";
   text: string;
   timestamp: Date;
 };
@@ -37,15 +38,55 @@ type WebRTCResources = {
   audioElement: HTMLAudioElement | null;
 };
 
+// Toggle button group component
+function ToggleGroup({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex rounded-lg border bg-muted/50 p-1">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          className={`flex-1 rounded-md px-3 py-1.5 text-sm transition-colors ${
+            value === option.value
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function TestAgentPage() {
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const [isConnected, setIsConnected] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
-  const [audioStatus, setAudioStatus] = useState<string>("Not connected");
+  const [callDuration, setCallDuration] = useState(0);
+
+  // Settings state
+  const [voice, setVoice] = useState("alloy");
+  const [turnDetection, setTurnDetection] = useState("normal");
+  const [threshold, setThreshold] = useState(0.5);
+  const [prefixPadding, setPrefixPadding] = useState(300);
+  const [silenceDuration, setSilenceDuration] = useState(500);
+  const [idleTimeout, setIdleTimeout] = useState(true);
+  const [editedSystemPrompt, setEditedSystemPrompt] = useState("");
+
+  const queryClient = useQueryClient();
 
   const sessionRef = useRef<RealtimeSession | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // WebRTC resource refs for proper cleanup
   const webrtcRef = useRef<WebRTCResources>({
@@ -70,6 +111,62 @@ export default function TestAgentPage() {
     queryFn: fetchAgents,
   });
 
+  // Update all settings when agent changes
+  useEffect(() => {
+    const agent = agents.find((a) => a.id === selectedAgentId);
+    if (agent) {
+      setEditedSystemPrompt(agent.system_prompt || "");
+      setVoice(agent.voice || "alloy");
+      setTurnDetection(agent.turn_detection_mode || "normal");
+      setThreshold(agent.turn_detection_threshold ?? 0.5);
+      setPrefixPadding(agent.turn_detection_prefix_padding_ms ?? 300);
+      setSilenceDuration(agent.turn_detection_silence_duration_ms ?? 500);
+    } else {
+      setEditedSystemPrompt("");
+      setVoice("alloy");
+      setTurnDetection("normal");
+      setThreshold(0.5);
+      setPrefixPadding(300);
+      setSilenceDuration(500);
+    }
+  }, [selectedAgentId, agents]);
+
+  // Mutation to save all settings
+  const saveSettingsMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedAgentId) throw new Error("No agent selected");
+      return updateAgent(selectedAgentId, {
+        system_prompt: editedSystemPrompt,
+        voice: voice,
+        turn_detection_mode: turnDetection as "normal" | "semantic" | "disabled",
+        turn_detection_threshold: threshold,
+        turn_detection_prefix_padding_ms: prefixPadding,
+        turn_detection_silence_duration_ms: silenceDuration,
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
+      toast.success("Settings saved");
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to save: ${error.message}`);
+    },
+  });
+
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+  const hasUnsavedChanges = selectedAgent
+    ? selectedAgent.system_prompt !== editedSystemPrompt ||
+      selectedAgent.voice !== voice ||
+      selectedAgent.turn_detection_mode !== turnDetection ||
+      selectedAgent.turn_detection_threshold !== threshold ||
+      selectedAgent.turn_detection_prefix_padding_ms !== prefixPadding ||
+      selectedAgent.turn_detection_silence_duration_ms !== silenceDuration
+    : false;
+
+  const handleSaveSettings = () => {
+    saveSettingsMutation.mutate();
+  };
+
   // Flush pending transcript updates
   const flushTranscripts = useCallback(() => {
     if (pendingTranscriptsRef.current.length > 0) {
@@ -88,7 +185,7 @@ export default function TestAgentPage() {
 
   // Batched addTranscript that groups updates
   const addTranscriptBatched = useCallback(
-    (speaker: string, text: string) => {
+    (speaker: "user" | "assistant" | "system", text: string) => {
       pendingTranscriptsRef.current.push({
         id: crypto.randomUUID(),
         speaker,
@@ -106,6 +203,12 @@ export default function TestAgentPage() {
   );
 
   const cleanup = useCallback(() => {
+    // Clear call timer
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    }
+
     // Clear any pending flush timeout
     if (flushTimeoutRef.current) {
       clearTimeout(flushTimeoutRef.current);
@@ -178,17 +281,20 @@ export default function TestAgentPage() {
   }, [cleanup]);
 
   // Immediate addTranscript for critical messages (system messages during connect)
-  const addTranscriptImmediate = useCallback((speaker: string, text: string) => {
-    setTranscript((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        speaker,
-        text,
-        timestamp: new Date(),
-      },
-    ]);
-  }, []);
+  const addTranscriptImmediate = useCallback(
+    (speaker: "user" | "assistant" | "system", text: string) => {
+      setTranscript((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          speaker,
+          text,
+          timestamp: new Date(),
+        },
+      ]);
+    },
+    []
+  );
 
   // Use batched version for high-frequency updates (history_updated handler)
   const addTranscript = addTranscriptBatched;
@@ -198,8 +304,8 @@ export default function TestAgentPage() {
       // Disconnect
       cleanup();
       setIsConnected(false);
-      setAudioStatus("Disconnected");
-      addTranscript("System", "Call ended");
+      setCallDuration(0);
+      addTranscript("system", "Session ended");
       return;
     }
 
@@ -212,17 +318,17 @@ export default function TestAgentPage() {
     if (!selectedAgent) return;
 
     try {
-      setAudioStatus("Initializing...");
-      addTranscript("System", `Connecting to ${selectedAgent.name}...`);
+      addTranscriptImmediate("system", `Connecting to ${selectedAgent.name}...`);
+
+      const agentSystemPrompt = editedSystemPrompt || "You are a helpful voice assistant.";
 
       // Create a RealtimeAgent with the agent's configuration
       const realtimeAgent = new RealtimeAgent({
         name: selectedAgent.name,
-        instructions: selectedAgent.system_prompt || "You are a helpful voice assistant.",
+        instructions: agentSystemPrompt,
       });
 
       // Create a RealtimeSession with WebRTC transport
-      // Note: model comes from the ephemeral token, not specified here
       const session = new RealtimeSession(realtimeAgent, {
         transport: "webrtc",
       });
@@ -238,25 +344,19 @@ export default function TestAgentPage() {
           console.log("[Connection Change]", status);
           if (status === "connected") {
             setIsConnected(true);
-            setAudioStatus("Connected - Voice active");
-            addTranscript("System", "WebRTC connected! Speak to test your agent.");
           } else if (status === "disconnected") {
             setIsConnected(false);
-            setAudioStatus("Disconnected");
-            addTranscript("System", "Connection closed");
-          } else if (status === "connecting") {
-            setAudioStatus("Connecting...");
           }
         } else if (event.type === "error") {
           console.error("[Transport Error]", event);
           const errorEvent = event as { type: string; error?: unknown };
-          addTranscript("System", `Error: ${String(errorEvent.error)}`);
+          addTranscript("system", `Error: ${String(errorEvent.error)}`);
         }
       });
 
       session.on("error", (error) => {
         console.error("[Session Error]", error);
-        addTranscript("System", `Session Error: ${String(error.error)}`);
+        addTranscript("system", `Session Error: ${String(error.error)}`);
       });
 
       session.on("history_updated", (history: RealtimeItem[]) => {
@@ -275,13 +375,13 @@ export default function TestAgentPage() {
             if (content && Array.isArray(content)) {
               for (const part of content) {
                 if (part.type === "input_text" && part.text) {
-                  addTranscriptBatched("You", part.text);
+                  addTranscriptBatched("user", part.text);
                 } else if (part.type === "text" && part.text && role === "assistant") {
-                  addTranscriptBatched("Agent", part.text);
+                  addTranscriptBatched("assistant", part.text);
                 } else if (part.type === "input_audio" && part.transcript) {
-                  addTranscriptBatched("You", part.transcript);
+                  addTranscriptBatched("user", part.transcript);
                 } else if (part.type === "audio" && part.transcript && role === "assistant") {
-                  addTranscriptBatched("Agent", part.transcript);
+                  addTranscriptBatched("assistant", part.transcript);
                 }
               }
             }
@@ -294,9 +394,11 @@ export default function TestAgentPage() {
       });
 
       // Fetch ephemeral token from our backend
-      setAudioStatus("Getting session token...");
       const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-      const tokenResponse = await fetch(`${apiBase}/api/v1/realtime/token/${selectedAgentId}`);
+      const authToken = localStorage.getItem("access_token");
+      const tokenResponse = await fetch(`${apiBase}/api/v1/realtime/token/${selectedAgentId}`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      });
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
@@ -311,8 +413,6 @@ export default function TestAgentPage() {
       }
 
       console.log("[WebRTC] Got ephemeral token:", ephemeralKey.substring(0, 10) + "...");
-      console.log("[WebRTC] Token session config:", tokenData.session_config);
-      setAudioStatus("Connecting via WebRTC...");
 
       // Manual WebRTC connection since SDK doesn't include required OpenAI-Beta header
       const pc = new RTCPeerConnection();
@@ -370,31 +470,35 @@ export default function TestAgentPage() {
       dataChannel.onopen = () => {
         console.log("[WebRTC] Data channel opened!");
         setIsConnected(true);
-        setAudioStatus("Connected - Voice active");
-        addTranscript("System", "WebRTC connected! Speak to test your agent.");
 
-        // Get tools from token response and system prompt from agent
+        // Start call timer
+        setCallDuration(0);
+        callTimerRef.current = setInterval(() => {
+          setCallDuration((prev) => prev + 1);
+        }, 1000);
+
+        // Get tools from token response
         const tools = tokenData.tools ?? [];
-        const systemPrompt =
-          tokenData.agent?.system_prompt ??
-          selectedAgent.system_prompt ??
-          "You are a helpful voice assistant.";
 
         console.log("[WebRTC] Configuring session with", tools.length, "tools");
 
         // Send session update with agent config and tools
+        const instructions = editedSystemPrompt || "You are a helpful voice assistant.";
         const sessionUpdate = {
           type: "session.update",
           session: {
-            instructions: systemPrompt,
-            voice: "alloy",
+            instructions: instructions,
+            voice: voice,
             input_audio_transcription: { model: "whisper-1" },
-            turn_detection: {
-              type: "server_vad",
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 500,
-            },
+            turn_detection:
+              turnDetection === "disabled"
+                ? null
+                : {
+                    type: turnDetection === "semantic" ? "semantic_vad" : "server_vad",
+                    threshold: threshold,
+                    prefix_padding_ms: prefixPadding,
+                    silence_duration_ms: silenceDuration,
+                  },
             tools: tools,
             tool_choice: tools.length > 0 ? "auto" : "none",
           },
@@ -415,21 +519,17 @@ export default function TestAgentPage() {
           if (data.type === "session.updated") {
             const toolsConfigured = data.session?.tools?.length ?? 0;
             console.log("[WebRTC] Session updated - tools configured:", toolsConfigured);
-            if (toolsConfigured > 0) {
-              addTranscript("System", `Session configured with ${toolsConfigured} tools`);
-            }
           }
 
           // Handle transcription
           if (data.type === "conversation.item.input_audio_transcription.completed") {
-            addTranscript("You", data.transcript);
+            addTranscript("user", data.transcript);
           } else if (data.type === "response.audio_transcript.done") {
-            addTranscript("Agent", data.transcript);
+            addTranscript("assistant", data.transcript);
           } else if (data.type === "response.function_call_arguments.done") {
             // Handle function/tool call
             const { call_id, name, arguments: argsJson } = data;
             console.log("[WebRTC] Function call:", name, argsJson);
-            addTranscript("System", `Calling tool: ${name}`);
 
             try {
               // Execute tool via backend API
@@ -456,17 +556,10 @@ export default function TestAgentPage() {
                 },
               };
               dataChannel.send(JSON.stringify(outputEvent));
-              console.log("[WebRTC] Sent function_call_output");
 
               // Trigger response generation
               const responseCreate = { type: "response.create" };
               dataChannel.send(JSON.stringify(responseCreate));
-              console.log("[WebRTC] Sent response.create");
-
-              addTranscript(
-                "System",
-                `Tool ${name} result: ${toolResult.success ? "Success" : "Failed"}`
-              );
             } catch (toolError) {
               console.error("[WebRTC] Tool execution error:", toolError);
               // Send error output
@@ -483,7 +576,7 @@ export default function TestAgentPage() {
             }
           } else if (data.type === "error") {
             console.error("[WebRTC] Error event:", data);
-            addTranscript("System", `Error: ${data.error?.message ?? "Unknown error"}`);
+            addTranscript("system", `Error: ${data.error?.message ?? "Unknown error"}`);
           }
         } catch (e) {
           console.error("[WebRTC] Failed to parse message:", e);
@@ -497,7 +590,10 @@ export default function TestAgentPage() {
       dataChannel.onclose = () => {
         console.log("[WebRTC] Data channel closed");
         setIsConnected(false);
-        setAudioStatus("Disconnected");
+        if (callTimerRef.current) {
+          clearInterval(callTimerRef.current);
+          callTimerRef.current = null;
+        }
       };
 
       pc.onconnectionstatechange = () => {
@@ -505,23 +601,13 @@ export default function TestAgentPage() {
         if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
           cleanup();
           setIsConnected(false);
-          setAudioStatus("Disconnected");
+          setCallDuration(0);
         }
       };
-
-      // sessionRef now uses webrtcRef for cleanup (handled by cleanup function)
-      // No need to manually assign here as webrtcRef.current is already set above
-
-      addTranscriptImmediate("System", `Tier: ${selectedAgent.pricing_tier}`);
-      addTranscriptImmediate(
-        "System",
-        `Tools: ${selectedAgent.enabled_tools.join(", ") || "None"}`
-      );
     } catch (error: unknown) {
       const err = error as Error;
       console.error("[WebRTC] Connection error:", err);
-      setAudioStatus("Error");
-      addTranscript("System", `Error: ${err.message}`);
+      addTranscript("system", `Error: ${err.message}`);
       cleanup();
 
       if (err.name === "NotAllowedError") {
@@ -538,248 +624,238 @@ export default function TestAgentPage() {
     void handleConnect();
   };
 
-  const handleMuteToggle = () => {
-    const { audioStream } = webrtcRef.current;
-    if (audioStream) {
-      const newMuted = !isMuted;
-      audioStream.getAudioTracks().forEach((track) => {
-        track.enabled = !newMuted;
-      });
-      setIsMuted(newMuted);
-    }
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Test Voice Agent</h1>
-        <p className="text-muted-foreground">
-          Test your voice agents in real-time using OpenAI Agents SDK (WebRTC)
-        </p>
-      </div>
+    <div className="flex h-[calc(100vh-4rem)]">
+      {/* Main Content */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left - Transcript */}
+        <div className="flex flex-1 flex-col">
+          <ScrollArea className="flex-1 p-6">
+            {transcript.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                Start a session to see the conversation
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {transcript.map((item) => (
+                  <div key={item.id} className="flex gap-4">
+                    <div className="w-16 shrink-0 pt-0.5 text-xs font-medium text-muted-foreground">
+                      {item.timestamp.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </div>
+                    <div className="flex-1">
+                      <div
+                        className={`mb-1 text-xs font-semibold uppercase tracking-wide ${
+                          item.speaker === "user"
+                            ? "text-blue-500"
+                            : item.speaker === "assistant"
+                              ? "text-green-500"
+                              : "text-muted-foreground"
+                        }`}
+                      >
+                        {item.speaker === "user"
+                          ? "USER"
+                          : item.speaker === "assistant"
+                            ? "ASSISTANT"
+                            : "SYSTEM"}
+                      </div>
+                      <div
+                        className={`text-sm ${item.speaker === "system" ? "italic text-muted-foreground" : ""}`}
+                      >
+                        {item.text}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div ref={transcriptEndRef} />
+              </div>
+            )}
+          </ScrollArea>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Live Testing</CardTitle>
-            <CardDescription>Connect to test your agent&apos;s conversation flow</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Select Agent</Label>
-                <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose an agent to test" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agents.length === 0 ? (
-                      <SelectItem value="none" disabled>
-                        No agents available - create one first
-                      </SelectItem>
-                    ) : (
-                      agents
-                        .filter((agent) => agent.pricing_tier === "premium")
-                        .map((agent) => (
-                          <SelectItem key={agent.id} value={agent.id}>
-                            {agent.name} ({agent.pricing_tier})
-                          </SelectItem>
-                        ))
-                    )}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Only Premium tier agents support WebRTC
-                </p>
+          {/* Bottom Control Bar */}
+          <div className="border-t bg-muted/30 px-6 py-4">
+            <div className="flex items-center justify-center gap-4">
+              <div className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
+                <span>{formatDuration(callDuration)}</span>
+                {isConnected && (
+                  <div className="flex h-6 items-center gap-0.5">
+                    {[...Array(12)].map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-0.5 animate-pulse bg-foreground/40"
+                        style={{
+                          height: `${Math.random() * 16 + 4}px`,
+                          animationDelay: `${i * 50}ms`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-2">
-                <Label>Test Phone Number</Label>
-                <Input type="tel" placeholder="+1 (555) 000-0000" disabled={isConnected} />
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-4">
               <Button
                 onClick={handleConnectClick}
-                variant={isConnected ? "destructive" : "default"}
-                className="flex-1"
+                variant={isConnected ? "secondary" : "default"}
+                className="gap-2"
                 disabled={!selectedAgentId && !isConnected}
               >
-                {isConnected ? (
-                  <>
-                    <PhoneOff className="mr-2 h-4 w-4" />
-                    End Call
-                  </>
-                ) : (
-                  <>
-                    <Phone className="mr-2 h-4 w-4" />
-                    Start Test Call
-                  </>
-                )}
-              </Button>
-              <Button variant="outline" onClick={handleMuteToggle} disabled={!isConnected}>
-                {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                <Play className="h-4 w-4" />
+                {isConnected ? "Stop" : "Start session"}
               </Button>
             </div>
+          </div>
+        </div>
 
+        {/* Right - Settings Panel */}
+        <div className="w-[380px] shrink-0 overflow-y-auto border-l bg-muted/20">
+          <div className="space-y-6 p-6">
+            {/* Agent Selection */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Agent</Label>
+              <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an agent" />
+                </SelectTrigger>
+                <SelectContent>
+                  {agents
+                    .filter((agent) => agent.pricing_tier === "premium")
+                    .map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Separator />
+
+            {/* System Instructions */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Call Status</Label>
-                <Badge variant={isConnected ? "default" : "secondary"}>{audioStatus}</Badge>
+                <Label className="text-sm font-medium">System instructions</Label>
+                {hasUnsavedChanges && selectedAgentId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 text-xs"
+                    onClick={handleSaveSettings}
+                    disabled={saveSettingsMutation.isPending}
+                  >
+                    <Save className="h-3 w-3" />
+                    {saveSettingsMutation.isPending ? "Saving..." : "Save"}
+                  </Button>
+                )}
               </div>
-
-              <Card className="bg-muted/50">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-sm">
-                    <Mic className="h-4 w-4" />
-                    Live Transcript
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[350px] w-full rounded-md border bg-background p-4">
-                    {transcript.length === 0 ? (
-                      <div className="flex h-full flex-col items-center justify-center text-center">
-                        <div className="mb-3 rounded-full bg-muted p-3">
-                          <Mic className="h-6 w-6 text-muted-foreground" />
-                        </div>
-                        <p className="text-sm font-medium">No conversation yet</p>
-                        <p className="text-xs text-muted-foreground">
-                          Start a test call to see the live transcript
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {transcript.map((item) => (
-                          <div
-                            key={item.id}
-                            className={`flex gap-3 ${
-                              item.speaker === "You" ? "flex-row-reverse" : "flex-row"
-                            }`}
-                          >
-                            {/* Avatar */}
-                            <div
-                              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                                item.speaker === "You"
-                                  ? "bg-primary text-primary-foreground"
-                                  : item.speaker === "Agent"
-                                    ? "bg-green-500 text-white"
-                                    : "bg-muted text-muted-foreground"
-                              }`}
-                            >
-                              {item.speaker === "You" ? (
-                                <User className="h-4 w-4" />
-                              ) : item.speaker === "Agent" ? (
-                                <Bot className="h-4 w-4" />
-                              ) : (
-                                <Settings2 className="h-4 w-4" />
-                              )}
-                            </div>
-
-                            {/* Message Bubble */}
-                            <div
-                              className={`max-w-[75%] space-y-1 ${
-                                item.speaker === "You" ? "items-end" : "items-start"
-                              }`}
-                            >
-                              <div
-                                className={`rounded-2xl px-4 py-2 ${
-                                  item.speaker === "You"
-                                    ? "rounded-tr-sm bg-primary text-primary-foreground"
-                                    : item.speaker === "Agent"
-                                      ? "rounded-tl-sm bg-green-500/10 text-foreground"
-                                      : "rounded-tl-sm bg-muted italic text-muted-foreground"
-                                }`}
-                              >
-                                <p className="text-sm">{item.text}</p>
-                              </div>
-                              <div
-                                className={`flex items-center gap-2 px-1 ${
-                                  item.speaker === "You" ? "justify-end" : "justify-start"
-                                }`}
-                              >
-                                <span className="text-[10px] text-muted-foreground">
-                                  {item.speaker}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {item.timestamp.toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                    second: "2-digit",
-                                  })}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                        <div ref={transcriptEndRef} />
-                      </div>
-                    )}
-                  </ScrollArea>
-                </CardContent>
-              </Card>
+              {selectedAgentId ? (
+                <Textarea
+                  value={editedSystemPrompt}
+                  onChange={(e) => setEditedSystemPrompt(e.target.value)}
+                  className="h-[100px] resize-none text-xs"
+                  placeholder="Enter system instructions..."
+                />
+              ) : (
+                <div className="flex h-[100px] items-center justify-center rounded-md border bg-muted/50 p-2 text-xs italic text-muted-foreground">
+                  Select an agent to edit system instructions
+                </div>
+              )}
             </div>
-          </CardContent>
-        </Card>
 
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Test Metrics</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Connection</span>
-                <span className="font-mono">{isConnected ? "WebRTC (SDK)" : "—"}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Transport</span>
-                <span className="font-mono">{isConnected ? "OpenAI Agents" : "—"}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Turns</span>
-                <span className="font-mono">
-                  {transcript.filter((t) => t.speaker !== "System").length}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+            <Separator />
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Debug Info</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 font-mono text-xs">
-              <div className="grid grid-cols-2 gap-1">
-                <span className="text-muted-foreground">SDK:</span>
-                <span>@openai/agents</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1">
-                <span className="text-muted-foreground">Protocol:</span>
-                <span>WebRTC</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1">
-                <span className="text-muted-foreground">Audio:</span>
-                <span>{isConnected ? (isMuted ? "Muted" : "Active") : "Idle"}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1">
-                <span className="text-muted-foreground">Status:</span>
-                <span>{sessionRef.current?.transport?.status ?? "None"}</span>
-              </div>
-            </CardContent>
-          </Card>
+            {/* Voice */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Voice</Label>
+              <Select value={voice} onValueChange={setVoice}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="alloy">Alloy</SelectItem>
+                  <SelectItem value="echo">Echo</SelectItem>
+                  <SelectItem value="fable">Fable</SelectItem>
+                  <SelectItem value="onyx">Onyx</SelectItem>
+                  <SelectItem value="nova">Nova</SelectItem>
+                  <SelectItem value="shimmer">Shimmer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-          <Card className="border-green-500/50 bg-green-500/5">
-            <CardHeader>
-              <CardTitle className="text-sm">OpenAI Agents SDK</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">
-                Using @openai/agents SDK with WebRTC transport. Audio is handled automatically by
-                the SDK for optimal latency and quality.
-              </p>
-            </CardContent>
-          </Card>
+            <Separator />
+
+            {/* Turn Detection */}
+            <div className="space-y-4">
+              <Label className="text-sm font-medium">Automatic turn detection</Label>
+              <ToggleGroup
+                options={[
+                  { value: "normal", label: "Normal" },
+                  { value: "semantic", label: "Semantic" },
+                  { value: "disabled", label: "Disabled" },
+                ]}
+                value={turnDetection}
+                onChange={setTurnDetection}
+              />
+
+              {turnDetection !== "disabled" && (
+                <div className="space-y-4 pt-2">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Threshold</span>
+                      <span>{threshold.toFixed(2)}</span>
+                    </div>
+                    <Slider
+                      value={[threshold]}
+                      onValueChange={(values) => setThreshold(values[0] ?? 0.5)}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Prefix padding</span>
+                      <span>{prefixPadding} ms</span>
+                    </div>
+                    <Slider
+                      value={[prefixPadding]}
+                      onValueChange={(values) => setPrefixPadding(values[0] ?? 300)}
+                      min={0}
+                      max={1000}
+                      step={10}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Silence duration</span>
+                      <span>{silenceDuration} ms</span>
+                    </div>
+                    <Slider
+                      value={[silenceDuration]}
+                      onValueChange={(values) => setSilenceDuration(values[0] ?? 500)}
+                      min={0}
+                      max={2000}
+                      step={50}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Idle timeout</span>
+                    <Switch checked={idleTimeout} onCheckedChange={setIdleTimeout} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

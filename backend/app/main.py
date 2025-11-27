@@ -10,7 +10,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api import agents, crm, health, realtime, tools, workspaces
+from app.api import (
+    agents,
+    auth,
+    calls,
+    crm,
+    health,
+    realtime,
+    telephony,
+    telephony_ws,
+    tools,
+    workspaces,
+)
 from app.api import settings as settings_api
 from app.core.config import settings
 from app.core.limiter import limiter
@@ -123,6 +134,11 @@ app.include_router(settings_api.router)
 app.include_router(realtime.router)
 app.include_router(realtime.webrtc_router)  # WebRTC session endpoint
 app.include_router(tools.router)  # Tool execution endpoint
+app.include_router(telephony.router)  # Telephony API (phone numbers, calls)
+app.include_router(telephony.webhook_router)  # Twilio/Telnyx webhooks
+app.include_router(telephony_ws.router)  # Telephony WebSocket for media streams
+app.include_router(calls.router)  # Call history API
+app.include_router(auth.router)  # Authentication API
 
 
 @app.get("/")

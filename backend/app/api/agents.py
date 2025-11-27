@@ -32,6 +32,11 @@ class CreateAgentRequest(BaseModel):
     phone_number_id: str | None = None
     enable_recording: bool = False
     enable_transcript: bool = True
+    # Turn detection settings
+    turn_detection_mode: str = Field(default="normal", pattern="^(normal|semantic|disabled)$")
+    turn_detection_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    turn_detection_prefix_padding_ms: int = Field(default=300, ge=0, le=1000)
+    turn_detection_silence_duration_ms: int = Field(default=500, ge=0, le=2000)
 
 
 class UpdateAgentRequest(BaseModel):
@@ -48,6 +53,11 @@ class UpdateAgentRequest(BaseModel):
     enable_recording: bool | None = None
     enable_transcript: bool | None = None
     is_active: bool | None = None
+    # Turn detection settings
+    turn_detection_mode: str | None = Field(None, pattern="^(normal|semantic|disabled)$")
+    turn_detection_threshold: float | None = Field(None, ge=0.0, le=1.0)
+    turn_detection_prefix_padding_ms: int | None = Field(None, ge=0, le=1000)
+    turn_detection_silence_duration_ms: int | None = Field(None, ge=0, le=2000)
 
 
 class AgentResponse(BaseModel):
@@ -64,6 +74,11 @@ class AgentResponse(BaseModel):
     phone_number_id: str | None
     enable_recording: bool
     enable_transcript: bool
+    # Turn detection settings
+    turn_detection_mode: str
+    turn_detection_threshold: float
+    turn_detection_prefix_padding_ms: int
+    turn_detection_silence_duration_ms: int
     is_active: bool
     is_published: bool
     total_calls: int
@@ -105,6 +120,10 @@ async def create_agent(
         phone_number_id=request.phone_number_id,
         enable_recording=request.enable_recording,
         enable_transcript=request.enable_transcript,
+        turn_detection_mode=request.turn_detection_mode,
+        turn_detection_threshold=request.turn_detection_threshold,
+        turn_detection_prefix_padding_ms=request.turn_detection_prefix_padding_ms,
+        turn_detection_silence_duration_ms=request.turn_detection_silence_duration_ms,
         provider_config=provider_config,
         is_active=True,
         is_published=False,
@@ -267,35 +286,49 @@ async def update_agent(
             detail="Agent not found",
         )
 
-    # Update only provided fields
-    if request.name is not None:
-        agent.name = request.name
-    if request.description is not None:
-        agent.description = request.description
-    if request.pricing_tier is not None:
-        agent.pricing_tier = request.pricing_tier
-        agent.provider_config = _get_provider_config(request.pricing_tier)
-    if request.system_prompt is not None:
-        agent.system_prompt = request.system_prompt
-    if request.language is not None:
-        agent.language = request.language
-    if request.voice is not None:
-        agent.voice = request.voice
-    if request.enabled_tools is not None:
-        agent.enabled_tools = request.enabled_tools
-    if request.phone_number_id is not None:
-        agent.phone_number_id = request.phone_number_id
-    if request.enable_recording is not None:
-        agent.enable_recording = request.enable_recording
-    if request.enable_transcript is not None:
-        agent.enable_transcript = request.enable_transcript
-    if request.is_active is not None:
-        agent.is_active = request.is_active
+    # Apply updates from request
+    _apply_agent_updates(agent, request)
 
     await db.commit()
     await db.refresh(agent)
 
     return _agent_to_response(agent)
+
+
+def _apply_agent_updates(agent: Agent, request: UpdateAgentRequest) -> None:
+    """Apply update request fields to agent model.
+
+    Args:
+        agent: Agent model to update
+        request: Update request with optional fields
+    """
+    # Map of simple field updates (field_name -> request attribute)
+    simple_fields = [
+        "name",
+        "description",
+        "system_prompt",
+        "language",
+        "voice",
+        "enabled_tools",
+        "phone_number_id",
+        "enable_recording",
+        "enable_transcript",
+        "is_active",
+        "turn_detection_mode",
+        "turn_detection_threshold",
+        "turn_detection_prefix_padding_ms",
+        "turn_detection_silence_duration_ms",
+    ]
+
+    for field in simple_fields:
+        value = getattr(request, field)
+        if value is not None:
+            setattr(agent, field, value)
+
+    # Handle pricing_tier specially (updates provider_config too)
+    if request.pricing_tier is not None:
+        agent.pricing_tier = request.pricing_tier
+        agent.provider_config = _get_provider_config(request.pricing_tier)
 
 
 def _get_provider_config(tier: str) -> dict[str, Any]:
@@ -358,6 +391,10 @@ def _agent_to_response(agent: Agent) -> AgentResponse:
         phone_number_id=agent.phone_number_id,
         enable_recording=agent.enable_recording,
         enable_transcript=agent.enable_transcript,
+        turn_detection_mode=agent.turn_detection_mode,
+        turn_detection_threshold=agent.turn_detection_threshold,
+        turn_detection_prefix_padding_ms=agent.turn_detection_prefix_padding_ms,
+        turn_detection_silence_duration_ms=agent.turn_detection_silence_duration_ms,
         is_active=agent.is_active,
         is_published=agent.is_published,
         total_calls=agent.total_calls,

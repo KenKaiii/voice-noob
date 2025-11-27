@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import ARRAY, JSON, Boolean, DateTime, String, Text, Uuid
+from sqlalchemy import ARRAY, JSON, Boolean, DateTime, Float, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -57,6 +57,32 @@ class Agent(Base):
         nullable=False,
         default="shimmer",
         comment="Voice for TTS (e.g., alloy, shimmer, coral)",
+    )
+
+    # Turn detection settings (for OpenAI Realtime API)
+    turn_detection_mode: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="normal",
+        comment="Turn detection mode: normal, semantic, or disabled",
+    )
+    turn_detection_threshold: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.5,
+        comment="VAD threshold (0.0-1.0)",
+    )
+    turn_detection_prefix_padding_ms: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=300,
+        comment="Prefix padding in milliseconds",
+    )
+    turn_detection_silence_duration_ms: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=500,
+        comment="Silence duration in milliseconds before turn ends",
     )
 
     # Integrations/tools

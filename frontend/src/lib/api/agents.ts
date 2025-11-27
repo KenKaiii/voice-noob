@@ -4,6 +4,12 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function getAuthHeaders(): HeadersInit {
+  if (typeof window === "undefined") return {};
+  const token = localStorage.getItem("access_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 /**
  * Fetch with timeout to prevent hanging requests
  */
@@ -15,9 +21,16 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  // Merge auth headers with any provided headers
+  const headers = {
+    ...getAuthHeaders(),
+    ...(options.headers ?? {}),
+  };
+
   try {
     const response = await fetch(url, {
       ...options,
+      headers,
       signal: controller.signal,
     });
     return response;
@@ -43,6 +56,11 @@ export interface Agent {
   phone_number_id: string | null;
   enable_recording: boolean;
   enable_transcript: boolean;
+  // Turn detection settings
+  turn_detection_mode: "normal" | "semantic" | "disabled";
+  turn_detection_threshold: number;
+  turn_detection_prefix_padding_ms: number;
+  turn_detection_silence_duration_ms: number;
   is_active: boolean;
   is_published: boolean;
   total_calls: number;
@@ -119,6 +137,11 @@ export interface UpdateAgentRequest {
   enable_recording?: boolean;
   enable_transcript?: boolean;
   is_active?: boolean;
+  // Turn detection settings
+  turn_detection_mode?: "normal" | "semantic" | "disabled";
+  turn_detection_threshold?: number;
+  turn_detection_prefix_padding_ms?: number;
+  turn_detection_silence_duration_ms?: number;
 }
 
 /**

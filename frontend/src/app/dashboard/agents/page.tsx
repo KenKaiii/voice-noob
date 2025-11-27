@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import {
   AlertCircle,
   Phone,
   PhoneOff,
+  PhoneOutgoing,
   Wrench,
   Clock,
 } from "lucide-react";
@@ -19,13 +21,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { fetchAgents, deleteAgent, createAgent, getAgent } from "@/lib/api/agents";
+import { fetchAgents, deleteAgent, createAgent, getAgent, type Agent } from "@/lib/api/agents";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { MakeCallDialog } from "@/components/make-call-dialog";
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -42,6 +46,8 @@ function formatRelativeTime(dateString: string): string {
 export default function AgentsPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [callDialogOpen, setCallDialogOpen] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
 
   // Fetch agents from API
   const {
@@ -99,6 +105,11 @@ export default function AgentsPage() {
   const handleTest = (agentId: string) => {
     // Navigate to test page with the agent pre-selected
     router.push(`/dashboard/test?agent=${agentId}`);
+  };
+
+  const handleMakeCall = (agent: Agent) => {
+    setSelectedAgent(agent);
+    setCallDialogOpen(true);
   };
 
   return (
@@ -180,9 +191,14 @@ export default function AgentsPage() {
                         <Link href={`/dashboard/agents/${agent.id}`}>Edit</Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleTest(agent.id)}>Test</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleMakeCall(agent)}>
+                        <PhoneOutgoing className="mr-2 h-4 w-4" />
+                        Make Call
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleDuplicate(agent.id)}>
                         Duplicate
                       </DropdownMenuItem>
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem
                         className="text-destructive"
                         onClick={() => handleDelete(agent.id)}
@@ -256,6 +272,15 @@ export default function AgentsPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {/* Make Call Dialog */}
+      {selectedAgent && (
+        <MakeCallDialog
+          open={callDialogOpen}
+          onOpenChange={setCallDialogOpen}
+          agent={selectedAgent}
+        />
       )}
     </div>
   );

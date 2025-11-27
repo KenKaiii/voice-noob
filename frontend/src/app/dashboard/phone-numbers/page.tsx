@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Phone, Plus, MoreVertical, Search, Loader2 } from "lucide-react";
+import { Phone, Plus, MoreVertical, Search, Loader2, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,23 +47,36 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import {
+  listPhoneNumbers,
+  searchPhoneNumbers,
+  purchasePhoneNumber,
+  releasePhoneNumber,
+  type PhoneNumber as ApiPhoneNumber,
+  type Provider,
+} from "@/lib/api/telephony";
+import { fetchAgents, updateAgent, type Agent } from "@/lib/api/agents";
 
 type PhoneNumber = {
   id: string;
   phoneNumber: string;
   provider: string;
+  agentId?: string;
   agentName?: string;
   isActive: boolean;
 };
 
 type AvailableNumber = {
   phone_number: string;
-  locality?: string;
-  region?: string;
-  monthly_cost: string;
+  friendly_name?: string | null;
 };
 
 export default function PhoneNumbersPage() {
+  // State for phone numbers
+  const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumber[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   // State for modals
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
@@ -72,22 +85,86 @@ export default function PhoneNumbersPage() {
 
   // Purchase flow state
   const [searchAreaCode, setSearchAreaCode] = useState("");
-  const [selectedProvider, setSelectedProvider] = useState<string>("telnyx");
+  const [selectedProvider, setSelectedProvider] = useState<Provider>("telnyx");
   const [isSearching, setIsSearching] = useState(false);
   const [availableNumbers, setAvailableNumbers] = useState<AvailableNumber[]>([]);
   const [selectedAvailableNumber, setSelectedAvailableNumber] = useState<string | null>(null);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isReleaseDialogOpen, setIsReleaseDialogOpen] = useState(false);
   const [numberToRelease, setNumberToRelease] = useState<PhoneNumber | null>(null);
+  const [isAssigning, setIsAssigning] = useState(false);
 
-  // Mock data - will be replaced with API call
-  const phoneNumbers: PhoneNumber[] = [];
+  // Load phone numbers and agents on mount
+  useEffect(() => {
+    void loadData();
+  }, []);
 
-  // Mock agents for assignment
-  const agents = [
-    { id: "1", name: "Customer Support Agent" },
-    { id: "2", name: "Sales Agent" },
-  ];
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      // Load phone numbers from both providers
+      const [telnyxNumbers, twilioNumbers, agentsList] = await Promise.allSettled([
+        listPhoneNumbers("telnyx"),
+        listPhoneNumbers("twilio"),
+        fetchAgents(),
+      ]);
+
+      const numbers: PhoneNumber[] = [];
+
+      // Process Telnyx numbers
+      if (telnyxNumbers.status === "fulfilled") {
+        numbers.push(
+          ...telnyxNumbers.value.map((n: ApiPhoneNumber) => ({
+            id: n.id,
+            phoneNumber: n.phone_number,
+            provider: "telnyx",
+            agentId: n.assigned_agent_id ?? undefined,
+            isActive: true,
+          }))
+        );
+      }
+
+      // Process Twilio numbers
+      if (twilioNumbers.status === "fulfilled") {
+        numbers.push(
+          ...twilioNumbers.value.map((n: ApiPhoneNumber) => ({
+            id: n.id,
+            phoneNumber: n.phone_number,
+            provider: "twilio",
+            agentId: n.assigned_agent_id ?? undefined,
+            isActive: true,
+          }))
+        );
+      }
+
+      // Get agents list
+      const agentsData = agentsList.status === "fulfilled" ? agentsList.value : [];
+      setAgents(agentsData);
+
+      // Map agent names to phone numbers
+      const numbersWithAgents = numbers.map((num) => {
+        if (num.agentId) {
+          const agent = agentsData.find((a: Agent) => a.id === num.agentId);
+          return { ...num, agentName: agent?.name };
+        }
+        // Also check if any agent has this phone number assigned
+        const assignedAgent = agentsData.find(
+          (a: Agent) => a.phone_number_id === num.id || a.phone_number_id === num.phoneNumber
+        );
+        if (assignedAgent) {
+          return { ...num, agentId: assignedAgent.id, agentName: assignedAgent.name };
+        }
+        return num;
+      });
+
+      setPhoneNumbers(numbersWithAgents);
+    } catch (error) {
+      console.error("Failed to load data:", error);
+      // Don't show error toast - credentials may not be configured
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const openPurchaseModal = () => {
     setSearchAreaCode("");
@@ -96,7 +173,7 @@ export default function PhoneNumbersPage() {
     setIsPurchaseModalOpen(true);
   };
 
-  const searchAvailableNumbers = async () => {
+  const searchAvailableNumbersHandler = async () => {
     if (!searchAreaCode || searchAreaCode.length < 3) {
       toast.error("Please enter at least 3 digits for area code");
       return;
@@ -104,39 +181,31 @@ export default function PhoneNumbersPage() {
 
     setIsSearching(true);
     try {
-      // Simulate API call - replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const numbers = await searchPhoneNumbers({
+        provider: selectedProvider,
+        area_code: searchAreaCode,
+        limit: 10,
+      });
 
-      // Mock available numbers
-      const mockNumbers: AvailableNumber[] = [
-        {
-          phone_number: `+1${searchAreaCode}5551234`,
-          locality: "San Francisco",
-          region: "CA",
-          monthly_cost: "$1.00",
-        },
-        {
-          phone_number: `+1${searchAreaCode}5555678`,
-          locality: "Los Angeles",
-          region: "CA",
-          monthly_cost: "$1.00",
-        },
-        {
-          phone_number: `+1${searchAreaCode}5559012`,
-          locality: "New York",
-          region: "NY",
-          monthly_cost: "$1.00",
-        },
-      ];
-      setAvailableNumbers(mockNumbers);
-    } catch {
-      toast.error("Failed to search for available numbers");
+      setAvailableNumbers(
+        numbers.map((n) => ({
+          phone_number: n.phone_number,
+          friendly_name: n.friendly_name,
+        }))
+      );
+
+      if (numbers.length === 0) {
+        toast.info("No numbers found for this area code");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to search for numbers";
+      toast.error(message);
     } finally {
       setIsSearching(false);
     }
   };
 
-  const purchaseNumber = async () => {
+  const purchaseNumberHandler = async () => {
     if (!selectedAvailableNumber) {
       toast.error("Please select a number to purchase");
       return;
@@ -144,12 +213,17 @@ export default function PhoneNumbersPage() {
 
     setIsPurchasing(true);
     try {
-      // Simulate API call - replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await purchasePhoneNumber({
+        provider: selectedProvider,
+        phone_number: selectedAvailableNumber,
+      });
       toast.success(`Successfully purchased ${selectedAvailableNumber}`);
       setIsPurchaseModalOpen(false);
-    } catch {
-      toast.error("Failed to purchase number");
+      // Reload data to show new number
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to purchase number";
+      toast.error(message);
     } finally {
       setIsPurchasing(false);
     }
@@ -166,14 +240,24 @@ export default function PhoneNumbersPage() {
   };
 
   const handleAssignAgent = async (agentId: string) => {
+    if (!selectedNumber) return;
+
+    setIsAssigning(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Update the agent with the phone number
+      await updateAgent(agentId, {
+        phone_number_id: selectedNumber.phoneNumber,
+      });
       const agent = agents.find((a) => a.id === agentId);
-      toast.success(`Assigned ${selectedNumber?.phoneNumber} to ${agent?.name}`);
+      toast.success(`Assigned ${selectedNumber.phoneNumber} to ${agent?.name}`);
       setIsAssignModalOpen(false);
-    } catch {
-      toast.error("Failed to assign agent");
+      // Reload to reflect changes
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to assign agent";
+      toast.error(message);
+    } finally {
+      setIsAssigning(false);
     }
   };
 
@@ -186,11 +270,13 @@ export default function PhoneNumbersPage() {
     if (!numberToRelease) return;
 
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await releasePhoneNumber(numberToRelease.id, numberToRelease.provider as Provider);
       toast.success(`Released ${numberToRelease.phoneNumber}`);
-    } catch {
-      toast.error("Failed to release number");
+      // Reload to reflect changes
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to release number";
+      toast.error(message);
     } finally {
       setIsReleaseDialogOpen(false);
       setNumberToRelease(null);
@@ -204,19 +290,32 @@ export default function PhoneNumbersPage() {
           <h1 className="text-3xl font-bold tracking-tight">Phone Numbers</h1>
           <p className="text-muted-foreground">Manage phone numbers for your voice agents</p>
         </div>
-        <Button onClick={openPurchaseModal}>
-          <Plus className="mr-2 h-4 w-4" />
-          Purchase Number
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => void loadData()} disabled={isLoading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Button onClick={openPurchaseModal}>
+            <Plus className="mr-2 h-4 w-4" />
+            Purchase Number
+          </Button>
+        </div>
       </div>
 
-      {phoneNumbers.length === 0 ? (
+      {isLoading ? (
+        <Card>
+          <CardContent className="flex items-center justify-center py-16">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </CardContent>
+        </Card>
+      ) : phoneNumbers.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Phone className="mb-4 h-16 w-16 text-muted-foreground/50" />
             <h3 className="mb-2 text-lg font-semibold">No phone numbers yet</h3>
             <p className="mb-4 max-w-sm text-center text-sm text-muted-foreground">
-              Purchase a phone number from Telnyx or Twilio to start receiving calls
+              Purchase a phone number from Telnyx or Twilio to start receiving calls. Make sure to
+              configure your API credentials in Settings first.
             </p>
             <Button onClick={openPurchaseModal}>
               <Plus className="mr-2 h-4 w-4" />
@@ -246,7 +345,9 @@ export default function PhoneNumbersPage() {
                   <TableRow key={number.id}>
                     <TableCell className="font-mono font-medium">{number.phoneNumber}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{number.provider}</Badge>
+                      <Badge variant="outline" className="capitalize">
+                        {number.provider}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       {number.agentName ?? (
@@ -274,7 +375,7 @@ export default function PhoneNumbersPage() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive"
-                            onClick={() => void handleReleaseNumber(number)}
+                            onClick={() => handleReleaseNumber(number)}
                           >
                             Release Number
                           </DropdownMenuItem>
@@ -300,7 +401,10 @@ export default function PhoneNumbersPage() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="provider">Provider</Label>
-              <Select value={selectedProvider} onValueChange={setSelectedProvider}>
+              <Select
+                value={selectedProvider}
+                onValueChange={(v) => setSelectedProvider(v as Provider)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select provider" />
                 </SelectTrigger>
@@ -321,7 +425,7 @@ export default function PhoneNumbersPage() {
                   onChange={(e) => setSearchAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
                   maxLength={3}
                 />
-                <Button onClick={() => void searchAvailableNumbers()} disabled={isSearching}>
+                <Button onClick={() => void searchAvailableNumbersHandler()} disabled={isSearching}>
                   {isSearching ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
@@ -347,11 +451,10 @@ export default function PhoneNumbersPage() {
                     >
                       <div>
                         <p className="font-mono font-medium">{num.phone_number}</p>
-                        <p className="text-xs opacity-80">
-                          {num.locality}, {num.region}
-                        </p>
+                        {num.friendly_name && (
+                          <p className="text-xs opacity-80">{num.friendly_name}</p>
+                        )}
                       </div>
-                      <span className="text-sm">{num.monthly_cost}/mo</span>
                     </div>
                   ))}
                 </div>
@@ -364,7 +467,7 @@ export default function PhoneNumbersPage() {
               Cancel
             </Button>
             <Button
-              onClick={() => void purchaseNumber()}
+              onClick={() => void purchaseNumberHandler()}
               disabled={!selectedAvailableNumber || isPurchasing}
             >
               {isPurchasing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -388,7 +491,7 @@ export default function PhoneNumbersPage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-muted-foreground">Provider</Label>
-                <p>{selectedNumber.provider}</p>
+                <p className="capitalize">{selectedNumber.provider}</p>
               </div>
               <div className="space-y-1">
                 <Label className="text-muted-foreground">Assigned Agent</Label>
@@ -399,6 +502,12 @@ export default function PhoneNumbersPage() {
                 <Badge variant={selectedNumber.isActive ? "default" : "secondary"}>
                   {selectedNumber.isActive ? "Active" : "Inactive"}
                 </Badge>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-muted-foreground">Webhook URL</Label>
+                <p className="break-all font-mono text-xs text-muted-foreground">
+                  {`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/webhooks/${selectedNumber.provider}/voice`}
+                </p>
               </div>
             </div>
           )}
@@ -422,7 +531,10 @@ export default function PhoneNumbersPage() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Select Agent</Label>
-              <Select onValueChange={(value) => void handleAssignAgent(value)}>
+              <Select
+                onValueChange={(value) => void handleAssignAgent(value)}
+                disabled={isAssigning}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Choose an agent" />
                 </SelectTrigger>
@@ -434,6 +546,11 @@ export default function PhoneNumbersPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {agents.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No agents available. Create an agent first.
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>

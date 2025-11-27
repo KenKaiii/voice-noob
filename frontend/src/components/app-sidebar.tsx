@@ -10,7 +10,6 @@ import {
   Mic,
   Zap,
   Users,
-  Headphones,
   Calendar,
   FolderOpen,
 } from "lucide-react";
@@ -39,7 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { logout } from "@/lib/api";
+import { useAuth } from "@/hooks/use-auth";
 
 const navItems = [
   {
@@ -96,19 +95,16 @@ const navItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
+
+  const displayName = user?.username ?? "User";
+  const displayEmail = user?.email ?? "user@example.com";
+  const initials = displayName.slice(0, 2).toUpperCase();
 
   return (
     <Sidebar>
       <SidebarHeader className="border-b px-6 py-4">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Headphones className="h-5 w-5" />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold">Voice Noob</span>
-            <span className="text-xs text-muted-foreground">AI Voice Platform</span>
-          </div>
-        </div>
+        <span className="text-sm font-semibold">Voice Noob</span>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -134,11 +130,11 @@ export function AppSidebar() {
           <DropdownMenuTrigger asChild>
             <button className="flex w-full items-center gap-2 rounded-lg px-2 py-2 hover:bg-accent">
               <Avatar className="h-8 w-8">
-                <AvatarFallback>U</AvatarFallback>
+                <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col text-left text-sm">
-                <span className="font-medium">User</span>
-                <span className="text-xs text-muted-foreground">user@example.com</span>
+                <span className="font-medium">{displayName}</span>
+                <span className="text-xs text-muted-foreground">{displayEmail}</span>
               </div>
             </button>
           </DropdownMenuTrigger>
