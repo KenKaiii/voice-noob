@@ -4,6 +4,8 @@ Build AI voice agents that handle phone calls. No PhD required.
 
 Built by [Ken Kai](https://www.youtube.com/@kenkaidoesai) · [Join the community](https://www.skool.com/kenkai/about)
 
+![Voice Noob](voicenoob.png)
+
 ---
 
 ## What Is This?
@@ -34,6 +36,8 @@ Voice Noob is an open-source platform for creating AI-powered phone agents. Conf
 
 ## Features
 
+![Dashboard](dashboard.png)
+
 ### Voice Calling
 
 - Inbound and outbound calls via Telnyx or Twilio
@@ -41,6 +45,8 @@ Voice Noob is an open-source platform for creating AI-powered phone agents. Conf
 - ~320ms latency on Premium tier
 
 ### AI Flexibility
+
+![Create Agent](create-agent.png)
 
 - Choose your price-to-quality tradeoff
 - OpenAI GPT-4 Realtime, Google Gemini, or Cerebras Llama
@@ -53,6 +59,8 @@ Voice Noob is an open-source platform for creating AI-powered phone agents. Conf
 - Call controls (transfer, end call, DTMF)
 
 ### 30+ Integrations
+
+![Integrations](integrations.png)
 
 - CRM: HubSpot, Salesforce, Pipedrive, Zoho, GoHighLevel
 - Calendars: Google Calendar, Outlook, Calendly, Cal.com
