@@ -54,15 +54,28 @@ import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { cn } from "@/lib/utils";
 
 // OpenAI Realtime API voices (only for Premium tier)
+// marin and cedar are the new recommended voices (most natural and expressive)
 const REALTIME_VOICES = [
+  {
+    id: "marin",
+    name: "Marin",
+    description: "Professional & clear (Recommended)",
+    recommended: true,
+  },
+  {
+    id: "cedar",
+    name: "Cedar",
+    description: "Natural & conversational (Recommended)",
+    recommended: true,
+  },
+  { id: "shimmer", name: "Shimmer", description: "Energetic and expressive" },
   { id: "alloy", name: "Alloy", description: "Neutral and balanced" },
+  { id: "coral", name: "Coral", description: "Warm and friendly" },
+  { id: "echo", name: "Echo", description: "Warm and engaging" },
+  { id: "sage", name: "Sage", description: "Calm and thoughtful" },
+  { id: "verse", name: "Verse", description: "Versatile and expressive" },
   { id: "ash", name: "Ash", description: "Clear and precise" },
   { id: "ballad", name: "Ballad", description: "Melodic and smooth" },
-  { id: "coral", name: "Coral", description: "Warm and friendly" },
-  { id: "echo", name: "Echo", description: "Resonant and deep" },
-  { id: "sage", name: "Sage", description: "Calm and thoughtful" },
-  { id: "shimmer", name: "Shimmer", description: "Bright and energetic" },
-  { id: "verse", name: "Verse", description: "Versatile and expressive" },
 ] as const;
 
 // Get integrations that have tools defined
@@ -98,11 +111,11 @@ const WIZARD_STEPS = [
 ] as const;
 
 const agentFormSchema = z.object({
-  pricingTier: z.enum(["budget", "balanced", "premium"]).default("balanced"),
+  pricingTier: z.enum(["budget", "balanced", "premium-mini", "premium"]).default("balanced"),
   name: z.string().min(2, "Name must be at least 2 characters"),
   description: z.string().optional(),
   language: z.string().default("en-US"),
-  voice: z.string().default("shimmer"),
+  voice: z.string().default("marin"), // marin is the most natural & professional voice
   systemPrompt: z.string().min(10, "System prompt is required"),
   enabledTools: z.array(z.string()).default([]),
   enabledToolIds: z.record(z.string(), z.array(z.string())).default({}),
@@ -125,7 +138,7 @@ export default function CreateAgentPage() {
       systemPrompt: "",
       pricingTier: "balanced",
       language: "en-US",
-      voice: "shimmer",
+      voice: "marin",
       enabledTools: [],
       enabledToolIds: {},
       phoneNumberId: "",
@@ -180,7 +193,10 @@ export default function CreateAgentPage() {
       pricing_tier: data.pricingTier,
       system_prompt: data.systemPrompt,
       language: data.language,
-      voice: data.pricingTier === "premium" ? data.voice : undefined,
+      voice:
+        data.pricingTier === "premium" || data.pricingTier === "premium-mini"
+          ? data.voice
+          : undefined,
       enabled_tools: enabledIntegrations,
       enabled_tool_ids: data.enabledToolIds,
       phone_number_id: data.phoneNumberId,
@@ -223,6 +239,8 @@ export default function CreateAgentPage() {
       case "budget":
         return Zap;
       case "balanced":
+        return Sparkles;
+      case "premium-mini":
         return Sparkles;
       case "premium":
         return Crown;
@@ -378,14 +396,17 @@ export default function CreateAgentPage() {
                         key={tier.id}
                         type="button"
                         onClick={() =>
-                          form.setValue("pricingTier", tier.id as "budget" | "balanced" | "premium")
+                          form.setValue(
+                            "pricingTier",
+                            tier.id as "budget" | "balanced" | "premium-mini" | "premium"
+                          )
                         }
                         className={cn(
                           "relative flex flex-col rounded-lg border p-4 text-left transition-all hover:border-primary/50",
                           isSelected && "border-primary bg-primary/5 ring-2 ring-primary"
                         )}
                       >
-                        {tier.id === "balanced" && (
+                        {tier.recommended && (
                           <Badge className="absolute -top-2 right-3 text-[10px]">Popular</Badge>
                         )}
                         <div className="mb-3 flex items-center gap-2">
@@ -498,7 +519,7 @@ export default function CreateAgentPage() {
                     )}
                   />
 
-                  {pricingTier === "premium" && (
+                  {(pricingTier === "premium" || pricingTier === "premium-mini") && (
                     <FormField
                       control={form.control}
                       name="voice"

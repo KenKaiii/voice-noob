@@ -62,6 +62,8 @@ export interface Agent {
   turn_detection_threshold: number;
   turn_detection_prefix_padding_ms: number;
   turn_detection_silence_duration_ms: number;
+  temperature: number;
+  max_tokens: number;
   is_active: boolean;
   is_published: boolean;
   total_calls: number;
@@ -74,7 +76,7 @@ export interface Agent {
 export interface CreateAgentRequest {
   name: string;
   description?: string;
-  pricing_tier: "budget" | "balanced" | "premium";
+  pricing_tier: "budget" | "balanced" | "premium-mini" | "premium";
   system_prompt: string;
   language: string;
   voice?: string;
@@ -130,7 +132,7 @@ export async function getAgent(agentId: string): Promise<Agent> {
 export interface UpdateAgentRequest {
   name?: string;
   description?: string;
-  pricing_tier?: "budget" | "balanced" | "premium";
+  pricing_tier?: "budget" | "balanced" | "premium-mini" | "premium";
   system_prompt?: string;
   language?: string;
   voice?: string;
@@ -145,6 +147,8 @@ export interface UpdateAgentRequest {
   turn_detection_threshold?: number;
   turn_detection_prefix_padding_ms?: number;
   turn_detection_silence_duration_ms?: number;
+  temperature?: number;
+  max_tokens?: number;
 }
 
 /**

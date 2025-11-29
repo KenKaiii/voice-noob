@@ -205,7 +205,7 @@ export default function TestAgentPage() {
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
 
   // Settings state
-  const [voice, setVoice] = useState("alloy");
+  const [voice, setVoice] = useState("marin");
   const [language, setLanguage] = useState("en-US");
   const [turnDetection, setTurnDetection] = useState("normal");
   const [threshold, setThreshold] = useState(0.5);
@@ -256,7 +256,7 @@ export default function TestAgentPage() {
       setSilenceDuration(agent.turn_detection_silence_duration_ms ?? 200);
     } else {
       setEditedSystemPrompt("");
-      setVoice("alloy");
+      setVoice("marin");
       setLanguage("en-US");
       setTurnDetection("normal");
       setThreshold(0.5);
@@ -967,12 +967,16 @@ export default function TestAgentPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="alloy">Alloy</SelectItem>
-                  <SelectItem value="echo">Echo</SelectItem>
-                  <SelectItem value="fable">Fable</SelectItem>
-                  <SelectItem value="onyx">Onyx</SelectItem>
-                  <SelectItem value="nova">Nova</SelectItem>
+                  <SelectItem value="marin">Marin (Recommended)</SelectItem>
+                  <SelectItem value="cedar">Cedar (Recommended)</SelectItem>
                   <SelectItem value="shimmer">Shimmer</SelectItem>
+                  <SelectItem value="alloy">Alloy</SelectItem>
+                  <SelectItem value="coral">Coral</SelectItem>
+                  <SelectItem value="echo">Echo</SelectItem>
+                  <SelectItem value="sage">Sage</SelectItem>
+                  <SelectItem value="verse">Verse</SelectItem>
+                  <SelectItem value="ash">Ash</SelectItem>
+                  <SelectItem value="ballad">Ballad</SelectItem>
                 </SelectContent>
               </Select>
             </div>

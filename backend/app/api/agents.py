@@ -41,6 +41,9 @@ class CreateAgentRequest(BaseModel):
     turn_detection_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     turn_detection_prefix_padding_ms: int = Field(default=300, ge=0, le=1000)
     turn_detection_silence_duration_ms: int = Field(default=500, ge=0, le=2000)
+    # LLM settings
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=2000, ge=100, le=16000)
 
 
 class UpdateAgentRequest(BaseModel):
@@ -66,6 +69,9 @@ class UpdateAgentRequest(BaseModel):
     turn_detection_threshold: float | None = Field(None, ge=0.0, le=1.0)
     turn_detection_prefix_padding_ms: int | None = Field(None, ge=0, le=1000)
     turn_detection_silence_duration_ms: int | None = Field(None, ge=0, le=2000)
+    # LLM settings
+    temperature: float | None = Field(None, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(None, ge=100, le=16000)
 
 
 class AgentResponse(BaseModel):
@@ -88,6 +94,8 @@ class AgentResponse(BaseModel):
     turn_detection_threshold: float
     turn_detection_prefix_padding_ms: int
     turn_detection_silence_duration_ms: int
+    temperature: float
+    max_tokens: int
     is_active: bool
     is_published: bool
     total_calls: int
@@ -134,6 +142,8 @@ async def create_agent(
         turn_detection_threshold=request.turn_detection_threshold,
         turn_detection_prefix_padding_ms=request.turn_detection_prefix_padding_ms,
         turn_detection_silence_duration_ms=request.turn_detection_silence_duration_ms,
+        temperature=request.temperature,
+        max_tokens=request.max_tokens,
         provider_config=provider_config,
         is_active=True,
         is_published=False,
@@ -329,6 +339,8 @@ def _apply_agent_updates(agent: Agent, request: UpdateAgentRequest) -> None:
         "turn_detection_threshold",
         "turn_detection_prefix_padding_ms",
         "turn_detection_silence_duration_ms",
+        "temperature",
+        "max_tokens",
     ]
 
     for field in simple_fields:
@@ -368,9 +380,17 @@ def _get_provider_config(tier: str) -> dict[str, Any]:
             "tts_provider": "google",
             "tts_model": "built-in",
         },
+        "premium-mini": {
+            "llm_provider": "openai-realtime",
+            "llm_model": "gpt-4o-mini-realtime-preview-2024-12-17",
+            "stt_provider": "openai",
+            "stt_model": "built-in",
+            "tts_provider": "openai",
+            "tts_model": "built-in",
+        },
         "premium": {
             "llm_provider": "openai-realtime",
-            "llm_model": "gpt-4o-realtime-preview-2024-12-17",
+            "llm_model": "gpt-realtime-2025-08-28",
             "stt_provider": "openai",
             "stt_model": "built-in",
             "tts_provider": "openai",
@@ -407,6 +427,8 @@ def _agent_to_response(agent: Agent) -> AgentResponse:
         turn_detection_threshold=agent.turn_detection_threshold,
         turn_detection_prefix_padding_ms=agent.turn_detection_prefix_padding_ms,
         turn_detection_silence_duration_ms=agent.turn_detection_silence_duration_ms,
+        temperature=agent.temperature,
+        max_tokens=agent.max_tokens,
         is_active=agent.is_active,
         is_published=agent.is_published,
         total_calls=agent.total_calls,

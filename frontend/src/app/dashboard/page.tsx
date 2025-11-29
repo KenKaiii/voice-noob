@@ -311,7 +311,7 @@ export default function DashboardPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {agents.slice(0, 4).map((agent) => (
-              <Link key={agent.id} href={`/dashboard/agents/${agent.id}`}>
+              <Link key={agent.id} href={`/dashboard/agents/${agent.id}`} prefetch={false}>
                 <Card className="cursor-pointer transition-all hover:border-primary/50">
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2.5">

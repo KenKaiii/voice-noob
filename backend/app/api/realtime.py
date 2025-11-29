@@ -82,8 +82,8 @@ async def realtime_websocket(
             await websocket.close()
             return
 
-        # Check if Premium tier (GPT Realtime only for Premium)
-        if agent.pricing_tier != "premium":
+        # Check if Premium tier (GPT Realtime only for Premium/Premium-Mini)
+        if agent.pricing_tier not in ("premium", "premium-mini"):
             await websocket.send_json(
                 {
                     "type": "error",
@@ -307,15 +307,24 @@ async def create_webrtc_session(
     if not agent.is_active:
         raise HTTPException(status_code=400, detail="Agent is not active")
 
-    if agent.pricing_tier != "premium":
+    if agent.pricing_tier not in ("premium", "premium-mini"):
         raise HTTPException(
             status_code=400, detail="WebRTC Realtime only available for Premium tier agents"
         )
+
+    # Determine which model to use based on tier
+    # Using latest production gpt-realtime models (released Aug 2025)
+    realtime_model = (
+        "gpt-4o-mini-realtime-preview-2024-12-17"
+        if agent.pricing_tier == "premium-mini"
+        else "gpt-realtime-2025-08-28"
+    )
 
     session_logger.info(
         "agent_loaded",
         agent_name=agent.name,
         tier=agent.pricing_tier,
+        model=realtime_model,
         tools_count=len(agent.enabled_tools),
     )
 
@@ -343,18 +352,23 @@ async def create_webrtc_session(
     instructions = build_instructions_with_language(system_prompt, agent.language)
 
     # Build session configuration for OpenAI Realtime
+    # Use agent's configured voice (default to marin for natural conversational tone)
+    agent_voice = agent.voice or "marin"
     session_config: dict[str, Any] = {
         "type": "realtime",
-        "model": "gpt-4o-realtime-preview-2024-12-17",
+        "model": realtime_model,
         "instructions": instructions,
-        "voice": agent.voice or "shimmer",
-        "speed": 1.15,  # Slightly faster speech (1.0 = normal, range: 0.25-4.0)
+        "voice": agent_voice,
+        "speed": 1.1,  # Slightly faster speech (1.0 = normal, range: 0.25-1.5)
+        "temperature": agent.temperature
+        if agent.temperature
+        else 0.6,  # Lower for consistent delivery
         "input_audio_transcription": {"model": "whisper-1"},
         "turn_detection": {
             "type": "server_vad",
-            "threshold": 0.5,
-            "prefix_padding_ms": 200,
-            "silence_duration_ms": 200,
+            "threshold": agent.turn_detection_threshold or 0.5,
+            "prefix_padding_ms": agent.turn_detection_prefix_padding_ms or 200,
+            "silence_duration_ms": agent.turn_detection_silence_duration_ms or 200,
             "eagerness": "high",
         },
     }
@@ -446,10 +460,18 @@ async def get_ephemeral_token(
     if not agent.is_active:
         raise HTTPException(status_code=400, detail="Agent is not active")
 
-    if agent.pricing_tier != "premium":
+    if agent.pricing_tier not in ("premium", "premium-mini"):
         raise HTTPException(
             status_code=400, detail="WebRTC Realtime only available for Premium tier agents"
         )
+
+    # Determine which model to use based on tier
+    # Using latest production gpt-realtime models (released Aug 2025)
+    realtime_model = (
+        "gpt-4o-mini-realtime-preview-2024-12-17"
+        if agent.pricing_tier == "premium-mini"
+        else "gpt-realtime-2025-08-28"
+    )
 
     # Get OpenAI API key (user_uuid for UserSettings lookup)
     user_settings = await get_user_api_keys(user_uuid, db)
@@ -468,10 +490,9 @@ async def get_ephemeral_token(
 
     # Build minimal session configuration for ephemeral token request
     # The SDK will configure instructions, voice, tools etc. after connection via data channel
-    # Using the latest 2025 model as per official OpenAI examples
     agent_voice = agent.voice or "shimmer"
     session_config: dict[str, Any] = {
-        "model": "gpt-4o-realtime-preview-2025-06-03",
+        "model": realtime_model,
         "modalities": ["audio", "text"],
         "voice": agent_voice,
     }

@@ -121,10 +121,12 @@ const BALANCED_ADDITIONAL_LANGUAGES: Language[] = [
   { code: "ca-ES", name: "Catalan", whisperCode: "ca" },
 ];
 
+export type PricingTierType = "budget" | "balanced" | "premium-mini" | "premium";
+
 /**
  * Get languages available for a specific pricing tier.
  */
-export function getLanguagesForTier(tier: "budget" | "balanced" | "premium"): Language[] {
+export function getLanguagesForTier(tier: PricingTierType): Language[] {
   switch (tier) {
     case "budget":
       // Deepgram Nova-2 only
@@ -136,6 +138,7 @@ export function getLanguagesForTier(tier: "budget" | "balanced" | "premium"): La
         a.name.localeCompare(b.name)
       );
 
+    case "premium-mini":
     case "premium":
       // OpenAI Whisper - common + all premium languages
       return [...COMMON_LANGUAGES, ...PREMIUM_ADDITIONAL_LANGUAGES].sort((a, b) =>
@@ -150,10 +153,7 @@ export function getLanguagesForTier(tier: "budget" | "balanced" | "premium"): La
 /**
  * Check if a language code is valid for a given tier.
  */
-export function isLanguageValidForTier(
-  languageCode: string,
-  tier: "budget" | "balanced" | "premium"
-): boolean {
+export function isLanguageValidForTier(languageCode: string, tier: PricingTierType): boolean {
   const languages = getLanguagesForTier(tier);
   return languages.some((lang) => lang.code === languageCode);
 }
@@ -172,10 +172,7 @@ export function getWhisperCode(bcp47Code: string): string | undefined {
  * Get a fallback language if the current selection is invalid for the new tier.
  * Returns en-US as the safest default.
  */
-export function getFallbackLanguage(
-  currentLanguage: string,
-  newTier: "budget" | "balanced" | "premium"
-): string {
+export function getFallbackLanguage(currentLanguage: string, newTier: PricingTierType): string {
   if (isLanguageValidForTier(currentLanguage, newTier)) {
     return currentLanguage;
   }

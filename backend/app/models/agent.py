@@ -42,7 +42,7 @@ class Agent(Base):
         String(50),
         nullable=False,
         index=True,
-        comment="Pricing tier: budget, balanced, or premium",
+        comment="Pricing tier: budget, balanced, premium-mini, or premium",
     )
 
     # Agent configuration
@@ -83,6 +83,20 @@ class Agent(Base):
         nullable=False,
         default=500,
         comment="Silence duration in milliseconds before turn ends",
+    )
+
+    # LLM settings
+    temperature: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.7,
+        comment="LLM temperature (0.0-2.0)",
+    )
+    max_tokens: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=2000,
+        comment="Maximum response tokens",
     )
 
     # Integrations/tools

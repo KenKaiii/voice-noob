@@ -74,6 +74,14 @@ Mode: Real-time voice conversation
 You are in a live VOICE call. You MUST speak ONLY in {language_name} throughout this entire conversation.
 Never switch to another language, even if the caller speaks differently.
 
+[VOICE STYLE & DELIVERY]
+- Speak with a warm, engaging, and natural pace - NOT monotone or robotic
+- Vary your tone, emphasis, and pacing naturally as a human would
+- Be lively and conversational, like talking to a friend
+- Talk at a brisk but comfortable pace - don't drag words out
+- Express appropriate emotion: enthusiasm, empathy, curiosity
+- Use natural filler words sparingly ("well", "so", "you know") for authenticity
+
 [VOICE CONVERSATION GUIDELINES]
 - Keep responses concise and conversational - this is spoken audio, not text
 - Don't use markdown, bullet points, numbered lists, or any formatting
@@ -170,15 +178,13 @@ class GPTRealtimeSession:
         if not self.client:
             raise ValueError("OpenAI client not initialized")
 
-        self.logger.info(
-            "connecting_to_openai_realtime", model="gpt-4o-realtime-preview-2024-12-17"
-        )
+        # Use the latest production gpt-realtime model (released Aug 2025)
+        model = "gpt-realtime-2025-08-28"
+        self.logger.info("connecting_to_openai_realtime", model=model)
 
         try:
             # Use official SDK's realtime.connect() method
-            self.connection = await self.client.beta.realtime.connect(
-                model="gpt-4o-realtime-preview-2024-12-17"
-            ).__aenter__()
+            self.connection = await self.client.beta.realtime.connect(model=model).__aenter__()
 
             self.logger.info("realtime_connection_established")
 
@@ -210,14 +216,17 @@ class GPTRealtimeSession:
         # Build instructions with language directive
         system_prompt = self.agent_config.get("system_prompt", "You are a helpful voice assistant.")
         language = self.agent_config.get("language", "en-US")
-        voice = self.agent_config.get("voice", "shimmer")
+        # Default to marin for natural conversational tone
+        voice = self.agent_config.get("voice", "marin")
+        temperature = self.agent_config.get("temperature", 0.6)
         instructions = build_instructions_with_language(system_prompt, language)
 
         session_config = {
             "modalities": ["text", "audio"],
             "instructions": instructions,
             "voice": voice,
-            "speed": 1.15,  # Slightly faster speech (1.0 = normal, range: 0.25-4.0)
+            "speed": 1.1,  # Slightly faster speech (1.0 = normal, range: 0.25-1.5)
+            "temperature": temperature,  # Lower for consistent, natural delivery
             "input_audio_format": "pcm16",
             "output_audio_format": "pcm16",
             "input_audio_transcription": {"model": "whisper-1"},

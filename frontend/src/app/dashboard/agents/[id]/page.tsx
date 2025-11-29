@@ -174,6 +174,8 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("basic");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const isDeletingRef = useRef(false); // Ref for synchronous check
 
   const {
     data: agent,
@@ -181,8 +183,43 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
     error,
   } = useQuery({
     queryKey: ["agent", agentId],
-    queryFn: () => getAgent(agentId),
+    queryFn: () => {
+      // Double-check with ref before fetching
+      if (isDeletingRef.current) {
+        return Promise.reject(new Error("Agent is being deleted"));
+      }
+      return getAgent(agentId);
+    },
+    enabled: !isDeleting, // Disable query when deleting to prevent 404
+    retry: (failureCount, error) => {
+      // Don't retry if we're deleting
+      if (isDeletingRef.current) return false;
+      // Don't retry on 404 (agent not found/deleted)
+      if (error && typeof error === "object" && "response" in error) {
+        const axiosError = error as { response?: { status?: number } };
+        if (axiosError.response?.status === 404) {
+          return false;
+        }
+      }
+      // Don't retry if error message indicates deletion
+      if (error instanceof Error && error.message.includes("being deleted")) {
+        return false;
+      }
+      // Default: retry up to 3 times for other errors
+      return failureCount < 3;
+    },
   });
+
+  // Redirect to agents list when agent is not found (404)
+  useEffect(() => {
+    if (error && typeof error === "object" && "response" in error) {
+      const axiosError = error as { response?: { status?: number } };
+      if (axiosError.response?.status === 404) {
+        toast.error("Agent not found or has been deleted");
+        router.replace("/dashboard/agents");
+      }
+    }
+  }, [error, router]);
 
   // Fetch all workspaces
   const { data: workspaces = [] } = useQuery({
@@ -200,7 +237,17 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
       const response = await api.get<AgentWorkspace[]>(`/api/v1/workspaces/agent/${agentId}`);
       return response.data;
     },
-    enabled: !!agentId,
+    enabled: !!agentId && !!agent && !isDeleting, // Only fetch if agent exists and not deleting
+    retry: (failureCount, error) => {
+      // Don't retry on 404 (agent not found/deleted)
+      if (error && typeof error === "object" && "response" in error) {
+        const axiosError = error as { response?: { status?: number } };
+        if (axiosError.response?.status === 404) {
+          return false;
+        }
+      }
+      return failureCount < 3;
+    },
   });
 
   const form = useForm<AgentFormValues>({
@@ -216,7 +263,7 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
       sttProvider: "deepgram",
       deepgramModel: "nova-3",
       llmProvider: "openai-realtime",
-      llmModel: "gpt-realtime",
+      llmModel: "gpt-realtime-2025-08-28",
       systemPrompt: "",
       temperature: 0.7,
       maxTokens: 2000,
@@ -251,10 +298,10 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
         sttProvider: "deepgram",
         deepgramModel: "nova-3",
         llmProvider: agent.pricing_tier === "premium" ? "openai-realtime" : "openai",
-        llmModel: agent.pricing_tier === "premium" ? "gpt-realtime" : "gpt-4o",
+        llmModel: agent.pricing_tier === "premium" ? "gpt-realtime-2025-08-28" : "gpt-4o",
         systemPrompt: agent.system_prompt,
-        temperature: 0.7,
-        maxTokens: 2000,
+        temperature: agent.temperature,
+        maxTokens: agent.max_tokens,
         telephonyProvider: "telnyx",
         phoneNumberId: agent.phone_number_id ?? undefined,
         enableRecording: agent.enable_recording,
@@ -309,7 +356,7 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
     previousProvider.current = llmProvider;
 
     const defaultModels: Record<string, string> = {
-      "openai-realtime": "gpt-realtime",
+      "openai-realtime": "gpt-realtime-2025-08-28",
       openai: "gpt-4o",
       anthropic: "claude-sonnet-4-5",
       google: "gemini-2.5-flash",
@@ -334,17 +381,38 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
     },
   });
 
-  const deleteAgentMutation = useMutation({
-    mutationFn: () => deleteAgent(agentId),
-    onSuccess: () => {
-      toast.success("Agent deleted successfully");
-      void queryClient.invalidateQueries({ queryKey: ["agents"] });
-      router.push("/dashboard/agents");
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to delete agent");
-    },
-  });
+  // Handle delete - delete first, then navigate
+  const handleDeleteAgent = async () => {
+    // Set ref FIRST (synchronous) to block any queries
+    isDeletingRef.current = true;
+    setIsDeleting(true);
+
+    // Cancel and remove ALL queries immediately to prevent refetching
+    void queryClient.cancelQueries({ queryKey: ["agent", agentId] });
+    void queryClient.cancelQueries({ queryKey: ["agent-workspaces", agentId] });
+    void queryClient.cancelQueries({ queryKey: ["agents"] });
+    queryClient.removeQueries({ queryKey: ["agent", agentId] });
+    queryClient.removeQueries({ queryKey: ["agent-workspaces", agentId] });
+
+    // Also remove agent from agents list cache immediately (optimistic)
+    const previousAgents = queryClient.getQueryData<{ id: string }[]>(["agents"]);
+    if (previousAgents) {
+      queryClient.setQueryData(
+        ["agents"],
+        previousAgents.filter((a) => a.id !== agentId)
+      );
+    }
+
+    try {
+      // Delete the agent first
+      await deleteAgent(agentId);
+      // Then navigate - use replace to prevent back button issues
+      router.replace("/dashboard/agents");
+    } catch {
+      // Even on error, navigate away - the agent page will show error or 404
+      router.replace("/dashboard/agents");
+    }
+  };
 
   const assignWorkspacesMutation = useMutation({
     mutationFn: async (workspaceIds: string[]) => {
@@ -410,6 +478,8 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
       enable_recording: data.enableRecording,
       enable_transcript: data.enableTranscript,
       is_active: data.isActive,
+      temperature: data.temperature,
+      max_tokens: data.maxTokens,
     };
 
     // Update agent and workspaces
@@ -432,6 +502,21 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
   }
 
   if (error || !agent) {
+    // Check if it's a 404 error - we're redirecting, show loading
+    const is404 =
+      error &&
+      typeof error === "object" &&
+      "response" in error &&
+      (error as { response?: { status?: number } }).response?.status === 404;
+
+    if (is404) {
+      return (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6">
         <Button variant="ghost" asChild>
@@ -443,11 +528,9 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
         <Card className="border-destructive">
           <CardContent className="flex flex-col items-center justify-center py-16">
             <AlertCircle className="mb-4 h-16 w-16 text-destructive" />
-            <h3 className="mb-2 text-lg font-semibold">Agent not found</h3>
+            <h3 className="mb-2 text-lg font-semibold">Error loading agent</h3>
             <p className="mb-4 text-center text-sm text-muted-foreground">
-              {error instanceof Error
-                ? error.message
-                : "The agent you're looking for doesn't exist"}
+              {error instanceof Error ? error.message : "Failed to load agent details"}
             </p>
             <Button asChild>
               <Link href="/dashboard/agents">Return to Agents</Link>
@@ -518,10 +601,14 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
-                onClick={() => deleteAgentMutation.mutate()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleDeleteAgent();
+                }}
+                disabled={isDeleting}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
-                {deleteAgentMutation.isPending ? "Deleting..." : "Delete Permanently"}
+                {isDeleting ? "Deleting..." : "Delete Permanently"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -915,8 +1002,8 @@ export default function EditAgentPage({ params }: EditAgentPageProps) {
                             </FormControl>
                             <SelectContent>
                               {llmProvider === "openai-realtime" && (
-                                <SelectItem value="gpt-realtime">
-                                  gpt-4o-realtime (Best for Voice)
+                                <SelectItem value="gpt-realtime-2025-08-28">
+                                  gpt-realtime (Latest - Best Voice)
                                 </SelectItem>
                               )}
                               {llmProvider === "openai" && (
