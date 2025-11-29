@@ -4,11 +4,8 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.appointment import Appointment
-from app.models.call_interaction import CallInteraction
-from app.models.contact import Contact
+from app.models.user import User
 
 
 class TestContactEndpoints:
@@ -17,16 +14,14 @@ class TestContactEndpoints:
     @pytest.mark.asyncio
     async def test_create_contact_success(
         self,
-        test_client: AsyncClient,
+        authenticated_test_client: tuple[AsyncClient, User],
         sample_contact_data: dict[str, Any],
-        create_test_user: Any,
     ) -> None:
         """Test successful contact creation."""
-        # Create a user first
-        await create_test_user(id=1)
+        client, user = authenticated_test_client
 
         # Create contact
-        response = await test_client.post("/api/v1/crm/contacts", json=sample_contact_data)
+        response = await client.post("/api/v1/crm/contacts", json=sample_contact_data)
 
         assert response.status_code == 201
         data = response.json()
@@ -36,24 +31,23 @@ class TestContactEndpoints:
         assert data["phone_number"] == sample_contact_data["phone_number"]
         assert data["company_name"] == sample_contact_data["company_name"]
         assert data["status"] == sample_contact_data["status"]
-        assert data["user_id"] == 1
+        assert data["user_id"] == user.id
         assert "id" in data
 
     @pytest.mark.asyncio
     async def test_create_contact_minimal_data(
         self,
-        test_client: AsyncClient,
-        create_test_user: Any,
+        authenticated_test_client: tuple[AsyncClient, User],
     ) -> None:
         """Test contact creation with minimal required fields."""
-        await create_test_user(id=1)
+        client, _user = authenticated_test_client
 
         minimal_data = {
             "first_name": "Jane",
             "phone_number": "+9876543210",
         }
 
-        response = await test_client.post("/api/v1/crm/contacts", json=minimal_data)
+        response = await client.post("/api/v1/crm/contacts", json=minimal_data)
 
         assert response.status_code == 201
         data = response.json()
@@ -66,31 +60,29 @@ class TestContactEndpoints:
     @pytest.mark.asyncio
     async def test_create_contact_validation_error(
         self,
-        test_client: AsyncClient,
-        create_test_user: Any,
+        authenticated_test_client: tuple[AsyncClient, User],
     ) -> None:
         """Test contact creation with missing required fields."""
-        await create_test_user(id=1)
+        client, _user = authenticated_test_client
 
         # Missing first_name and phone_number
         invalid_data = {"email": "test@example.com"}
 
-        response = await test_client.post("/api/v1/crm/contacts", json=invalid_data)
+        response = await client.post("/api/v1/crm/contacts", json=invalid_data)
 
         assert response.status_code == 422  # Validation error
 
     @pytest.mark.asyncio
     async def test_get_contact_success(
         self,
-        test_client: AsyncClient,
-        create_test_user: Any,
+        authenticated_test_client: tuple[AsyncClient, User],
         create_test_contact: Any,
     ) -> None:
         """Test successful contact retrieval."""
-        user = await create_test_user()
+        client, user = authenticated_test_client
         contact = await create_test_contact(user_id=user.id)
 
-        response = await test_client.get(f"/api/v1/crm/contacts/{contact.id}")
+        response = await client.get(f"/api/v1/crm/contacts/{contact.id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -101,10 +93,11 @@ class TestContactEndpoints:
     @pytest.mark.asyncio
     async def test_get_contact_not_found(
         self,
-        test_client: AsyncClient,
+        authenticated_test_client: tuple[AsyncClient, User],
     ) -> None:
         """Test retrieving non-existent contact."""
-        response = await test_client.get("/api/v1/crm/contacts/99999")
+        client, _user = authenticated_test_client
+        response = await client.get("/api/v1/crm/contacts/99999")
 
         assert response.status_code == 404
         data = response.json()
@@ -114,10 +107,11 @@ class TestContactEndpoints:
     @pytest.mark.asyncio
     async def test_list_contacts_empty(
         self,
-        test_client: AsyncClient,
+        authenticated_test_client: tuple[AsyncClient, User],
     ) -> None:
         """Test listing contacts when none exist."""
-        response = await test_client.get("/api/v1/crm/contacts")
+        client, _user = authenticated_test_client
+        response = await client.get("/api/v1/crm/contacts")
 
         assert response.status_code == 200
         data = response.json()
@@ -127,12 +121,11 @@ class TestContactEndpoints:
     @pytest.mark.asyncio
     async def test_list_contacts_success(
         self,
-        test_client: AsyncClient,
-        create_test_user: Any,
+        authenticated_test_client: tuple[AsyncClient, User],
         create_test_contact: Any,
     ) -> None:
         """Test listing multiple contacts."""
-        user = await create_test_user()
+        client, user = authenticated_test_client
 
         # Create multiple contacts
         await create_test_contact(
@@ -146,7 +139,7 @@ class TestContactEndpoints:
             phone_number="+2222222222",
         )
 
-        response = await test_client.get("/api/v1/crm/contacts")
+        response = await client.get("/api/v1/crm/contacts")
 
         assert response.status_code == 200
         data = response.json()
@@ -160,12 +153,11 @@ class TestContactEndpoints:
     @pytest.mark.asyncio
     async def test_list_contacts_pagination(
         self,
-        test_client: AsyncClient,
-        create_test_user: Any,
+        authenticated_test_client: tuple[AsyncClient, User],
         create_test_contact: Any,
     ) -> None:
         """Test contact listing with pagination."""
-        user = await create_test_user()
+        client, user = authenticated_test_client
 
         # Create 5 contacts
         for i in range(5):
@@ -176,7 +168,7 @@ class TestContactEndpoints:
             )
 
         # Test skip and limit
-        response = await test_client.get("/api/v1/crm/contacts?skip=2&limit=2")
+        response = await client.get("/api/v1/crm/contacts?skip=2&limit=2")
 
         assert response.status_code == 200
         data = response.json()
@@ -185,17 +177,16 @@ class TestContactEndpoints:
     @pytest.mark.asyncio
     async def test_contact_rate_limiting(
         self,
-        test_client: AsyncClient,
-        create_test_user: Any,
+        authenticated_test_client: tuple[AsyncClient, User],
     ) -> None:
         """Test rate limiting on contact endpoints."""
-        await create_test_user(id=1)
+        client, _user = authenticated_test_client
 
         # Make many requests to trigger rate limit
         # Rate limit is 100/minute, so we'll make 110 requests
         responses = []
         for _ in range(110):
-            response = await test_client.get("/api/v1/crm/contacts")
+            response = await client.get("/api/v1/crm/contacts")
             responses.append(response)
 
         # Some responses should be rate limited (429)
@@ -209,10 +200,11 @@ class TestCRMStatsEndpoint:
     @pytest.mark.asyncio
     async def test_get_stats_empty(
         self,
-        test_client: AsyncClient,
+        authenticated_test_client: tuple[AsyncClient, User],
     ) -> None:
         """Test stats endpoint with no data."""
-        response = await test_client.get("/api/v1/crm/stats")
+        client, _user = authenticated_test_client
+        response = await client.get("/api/v1/crm/stats")
 
         assert response.status_code == 200
         data = response.json()
@@ -223,14 +215,13 @@ class TestCRMStatsEndpoint:
     @pytest.mark.asyncio
     async def test_get_stats_with_data(
         self,
-        test_client: AsyncClient,
-        create_test_user: Any,
+        authenticated_test_client: tuple[AsyncClient, User],
         create_test_contact: Any,
         create_test_appointment: Any,
         create_test_call_interaction: Any,
     ) -> None:
         """Test stats endpoint with data."""
-        user = await create_test_user()
+        client, user = authenticated_test_client
         contact1 = await create_test_contact(user_id=user.id, phone_number="+1111111111")
         contact2 = await create_test_contact(user_id=user.id, phone_number="+2222222222")
 
@@ -242,7 +233,7 @@ class TestCRMStatsEndpoint:
         # Create call interactions
         await create_test_call_interaction(contact_id=contact1.id)
 
-        response = await test_client.get("/api/v1/crm/stats")
+        response = await client.get("/api/v1/crm/stats")
 
         assert response.status_code == 200
         data = response.json()
@@ -253,28 +244,27 @@ class TestCRMStatsEndpoint:
     @pytest.mark.asyncio
     async def test_stats_caching(
         self,
-        test_client: AsyncClient,
+        authenticated_test_client: tuple[AsyncClient, User],
         test_redis: Any,
-        create_test_user: Any,
         create_test_contact: Any,
     ) -> None:
         """Test that stats endpoint uses caching."""
-        user = await create_test_user()
+        client, user = authenticated_test_client
         await create_test_contact(user_id=user.id)
 
         # First request - should cache
-        response1 = await test_client.get("/api/v1/crm/stats")
+        response1 = await client.get("/api/v1/crm/stats")
         assert response1.status_code == 200
         data1 = response1.json()
         assert data1["total_contacts"] == 1
 
-        # Check that cache key was set
-        cache_key = "crm:stats:all"
+        # Check that cache key was set (cache key includes user_id)
+        cache_key = f"crm:stats:{user.id}"
         cached_value = await test_redis.get(cache_key)
         assert cached_value is not None
 
         # Second request - should use cache
-        response2 = await test_client.get("/api/v1/crm/stats")
+        response2 = await client.get("/api/v1/crm/stats")
         assert response2.status_code == 200
         data2 = response2.json()
         assert data2 == data1
@@ -282,33 +272,32 @@ class TestCRMStatsEndpoint:
     @pytest.mark.asyncio
     async def test_stats_cache_invalidation_on_contact_creation(
         self,
-        test_client: AsyncClient,
+        authenticated_test_client: tuple[AsyncClient, User],
         test_redis: Any,
         sample_contact_data: dict[str, Any],
-        create_test_user: Any,
     ) -> None:
         """Test that creating a contact invalidates stats cache."""
-        await create_test_user(id=1)
+        client, user = authenticated_test_client
 
         # Get initial stats to populate cache
-        response1 = await test_client.get("/api/v1/crm/stats")
+        response1 = await client.get("/api/v1/crm/stats")
         assert response1.status_code == 200
         assert response1.json()["total_contacts"] == 0
 
-        # Verify cache exists
-        cache_key = "crm:stats:all"
+        # Verify cache exists (cache key includes user_id)
+        cache_key = f"crm:stats:{user.id}"
         cached_value = await test_redis.get(cache_key)
         assert cached_value is not None
 
         # Create a contact (should invalidate cache)
-        create_response = await test_client.post(
+        create_response = await client.post(
             "/api/v1/crm/contacts",
             json=sample_contact_data,
         )
         assert create_response.status_code == 201
 
         # Get stats again - should show updated count
-        response2 = await test_client.get("/api/v1/crm/stats")
+        response2 = await client.get("/api/v1/crm/stats")
         assert response2.status_code == 200
         assert response2.json()["total_contacts"] == 1
 
@@ -319,11 +308,15 @@ class TestContactDatabaseIntegration:
     @pytest.mark.asyncio
     async def test_contact_persists_to_database(
         self,
-        test_session: AsyncSession,
+        test_session: Any,
         create_test_user: Any,
         create_test_contact: Any,
     ) -> None:
         """Test that contacts are properly persisted."""
+        from sqlalchemy import select
+
+        from app.models.contact import Contact
+
         user = await create_test_user()
         contact = await create_test_contact(
             user_id=user.id,
@@ -333,8 +326,6 @@ class TestContactDatabaseIntegration:
         )
 
         # Query directly from database
-        from sqlalchemy import select
-
         result = await test_session.execute(select(Contact).where(Contact.id == contact.id))
         db_contact = result.scalar_one()
 
@@ -347,12 +338,16 @@ class TestContactDatabaseIntegration:
     @pytest.mark.asyncio
     async def test_contact_cascade_delete_appointments(
         self,
-        test_session: AsyncSession,
+        test_session: Any,
         create_test_user: Any,
         create_test_contact: Any,
         create_test_appointment: Any,
     ) -> None:
         """Test that deleting a contact cascades to appointments."""
+        from sqlalchemy import select
+
+        from app.models.appointment import Appointment
+
         user = await create_test_user()
         contact = await create_test_contact(user_id=user.id)
         appointment = await create_test_appointment(contact_id=contact.id)
@@ -362,8 +357,6 @@ class TestContactDatabaseIntegration:
         await test_session.commit()
 
         # Verify appointment was also deleted
-        from sqlalchemy import select
-
         result = await test_session.execute(
             select(Appointment).where(Appointment.id == appointment.id)
         )
@@ -373,12 +366,16 @@ class TestContactDatabaseIntegration:
     @pytest.mark.asyncio
     async def test_contact_cascade_delete_call_interactions(
         self,
-        test_session: AsyncSession,
+        test_session: Any,
         create_test_user: Any,
         create_test_contact: Any,
         create_test_call_interaction: Any,
     ) -> None:
         """Test that deleting a contact cascades to call interactions."""
+        from sqlalchemy import select
+
+        from app.models.call_interaction import CallInteraction
+
         user = await create_test_user()
         contact = await create_test_contact(user_id=user.id)
         call = await create_test_call_interaction(contact_id=contact.id)
@@ -388,8 +385,6 @@ class TestContactDatabaseIntegration:
         await test_session.commit()
 
         # Verify call was also deleted
-        from sqlalchemy import select
-
         result = await test_session.execute(
             select(CallInteraction).where(CallInteraction.id == call.id)
         )

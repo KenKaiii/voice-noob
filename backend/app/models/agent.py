@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import ARRAY, JSON, Boolean, DateTime, Float, Integer, String, Text, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -101,7 +101,7 @@ class Agent(Base):
 
     # Integrations/tools
     enabled_tools: Mapped[list[str]] = mapped_column(
-        ARRAY(String),
+        JSON,
         nullable=False,
         default=list,
         comment="List of enabled integration IDs (legacy, for backward compatibility)",

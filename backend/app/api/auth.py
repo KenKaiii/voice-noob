@@ -1,5 +1,7 @@
 """Authentication API routes."""
 
+from datetime import UTC, datetime, timedelta
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -71,9 +73,22 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(user_id: int) -> str:
-    """Create a JWT access token."""
-    to_encode = {"sub": str(user_id)}
+def create_access_token(subject: str | int, expires_delta: timedelta | None = None) -> str:
+    """Create a JWT access token.
+
+    Args:
+        subject: The subject of the token (user ID or email)
+        expires_delta: Optional custom expiration time. Defaults to ACCESS_TOKEN_EXPIRE_MINUTES.
+
+    Returns:
+        Encoded JWT token string
+    """
+    if expires_delta:
+        expire = datetime.now(UTC) + expires_delta
+    else:
+        expire = datetime.now(UTC) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    to_encode = {"sub": str(subject), "exp": expire}
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 

@@ -10,9 +10,9 @@ from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 from typing import Any
 
+import fakeredis
 import pytest
 import pytest_asyncio
-import fakeredis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -29,11 +29,6 @@ from app.models.contact import Contact
 # Import all models to ensure they're registered with Base.metadata
 from app.models.user import User
 
-# Create a temp file for the test database
-_test_db_fd, _test_db_path = tempfile.mkstemp(suffix=".db")
-os.close(_test_db_fd)
-TEST_DATABASE_URL = f"sqlite+aiosqlite:///{_test_db_path}"
-
 logger = logging.getLogger(__name__)
 
 
@@ -47,9 +42,14 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
 
 @pytest_asyncio.fixture(scope="function")
 async def test_engine() -> AsyncGenerator[Any, None]:
-    """Create test database engine."""
+    """Create test database engine with fresh database for each test."""
+    # Create a unique temp file for each test to ensure complete isolation
+    test_db_fd, test_db_path = tempfile.mkstemp(suffix=".db")
+    os.close(test_db_fd)
+    test_db_url = f"sqlite+aiosqlite:///{test_db_path}"
+
     engine = create_async_engine(
-        TEST_DATABASE_URL,
+        test_db_url,
         echo=False,
         poolclass=NullPool,
     )
@@ -75,7 +75,7 @@ async def test_engine() -> AsyncGenerator[Any, None]:
 
     # Clean up temp database file
     try:
-        db_path = Path(_test_db_path)
+        db_path = Path(test_db_path)
         if db_path.exists():
             db_path.unlink()
     except Exception as e:
@@ -98,29 +98,34 @@ async def test_session(test_engine: Any) -> AsyncGenerator[AsyncSession, None]:
         await session.rollback()
 
 
-@pytest_asyncio.fixture(scope="function")
-async def test_redis() -> AsyncGenerator[Any, None]:
-    """Create fake Redis client for testing."""
-    redis_client = fakeredis.FakeAsyncRedis(decode_responses=True)
-    yield redis_client
-    await redis_client.flushall()
-    await redis_client.aclose()
+@pytest.fixture
+def test_redis() -> Any:
+    """Create fake Redis client for testing.
+
+    Note: Returns a factory function that creates a new fakeredis instance
+    each time get_redis is called, to avoid event loop issues.
+    """
+    # Return a sync version that will be called to create fresh instances
+    return fakeredis.FakeRedis(decode_responses=True)
 
 
 @pytest_asyncio.fixture(scope="function")
 async def test_client(
     test_session: AsyncSession,
-    test_redis: Any,
 ) -> AsyncGenerator[AsyncClient, None]:
-    """Create test HTTP client with dependency overrides."""
+    """Create test HTTP client with dependency overrides but NO authentication.
+
+    Use this for testing unauthenticated endpoints or testing auth failure cases.
+    For authenticated endpoints, use `authenticated_test_client` instead.
+    """
 
     # Override database dependency
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield test_session
 
-    # Override Redis dependency
+    # Override Redis dependency - create fresh async fakeredis for each call
     async def override_get_redis() -> Any:
-        return test_redis
+        return fakeredis.FakeAsyncRedis(decode_responses=True)
 
     # Apply overrides
     app.dependency_overrides[get_db] = override_get_db
@@ -133,6 +138,91 @@ async def test_client(
 
     # Clean up overrides
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def authenticated_test_client(
+    test_engine: Any,
+) -> AsyncGenerator[tuple[AsyncClient, User], None]:
+    """Create test HTTP client with authentication.
+
+    Returns a tuple of (client, user) where user is the authenticated test user.
+    Use this for testing authenticated endpoints.
+
+    Note: This fixture creates its own session to avoid transaction isolation issues.
+    """
+    import app.db.redis as redis_module
+    from app.core.auth import get_current_user
+
+    # Reset global redis state to avoid event loop issues
+    redis_module.redis_client = None
+    redis_module.redis_pool = None
+
+    # Create a shared fakeredis instance for this test
+    shared_fake_redis = fakeredis.FakeAsyncRedis(decode_responses=True)
+
+    # Create a fresh session for this test
+    test_async_session = async_sessionmaker(
+        test_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+
+    async with test_async_session() as session:
+        # Create test user first
+        test_user = User(
+            email="authuser@example.com",
+            hashed_password="test_hashed_pw_1234",  # noqa: S106
+            full_name="Auth Test User",
+            is_active=True,
+            is_superuser=False,
+        )
+        session.add(test_user)
+        await session.commit()
+        await session.refresh(test_user)
+
+        # Override database dependency - provide a fresh session for each request
+        async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+            request_session = test_async_session()
+            async with request_session:
+                yield request_session
+
+        # Override Redis dependency - use the shared fake redis for this test
+        async def override_get_redis() -> Any:
+            return shared_fake_redis
+
+        # Monkey patch the global get_redis to return our fake redis
+        original_get_redis = redis_module.get_redis
+
+        async def patched_get_redis() -> Any:
+            return shared_fake_redis
+
+        redis_module.get_redis = patched_get_redis
+
+        # Override authentication to return our test user
+        async def override_get_current_user() -> User:
+            return test_user
+
+        # Apply overrides
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_redis] = override_get_redis
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        # Create test client
+        transport = ASGITransport(app=app)  # type: ignore[arg-type]
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client, test_user
+
+        # Clean up overrides
+        app.dependency_overrides.clear()
+
+        # Restore original get_redis
+        redis_module.get_redis = original_get_redis
+
+        # Close shared fakeredis
+        await shared_fake_redis.aclose()
 
 
 @pytest.fixture

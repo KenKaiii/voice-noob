@@ -275,7 +275,9 @@ async def create_phone_number(
         friendly_name=create_request.friendly_name,
         provider=create_request.provider,
         provider_id=create_request.provider_id,
-        workspace_id=uuid.UUID(create_request.workspace_id) if create_request.workspace_id else None,
+        workspace_id=uuid.UUID(create_request.workspace_id)
+        if create_request.workspace_id
+        else None,
         can_receive_calls=create_request.can_receive_calls,
         can_make_calls=create_request.can_make_calls,
         can_receive_sms=create_request.can_receive_sms,
@@ -353,7 +355,9 @@ async def update_phone_number(
         )
     if update_request.assigned_agent_id is not None:
         phone_number.assigned_agent_id = (
-            uuid.UUID(update_request.assigned_agent_id) if update_request.assigned_agent_id else None
+            uuid.UUID(update_request.assigned_agent_id)
+            if update_request.assigned_agent_id
+            else None
         )
     if update_request.status is not None:
         phone_number.status = update_request.status

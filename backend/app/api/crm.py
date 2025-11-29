@@ -391,6 +391,20 @@ async def create_contact(
             contact.workspace_id,
         )
 
+        response_data: dict[str, object] = {
+            "id": contact.id,
+            "user_id": contact.user_id,
+            "workspace_id": str(contact.workspace_id) if contact.workspace_id else None,
+            "first_name": contact.first_name,
+            "last_name": contact.last_name,
+            "email": contact.email,
+            "phone_number": contact.phone_number,
+            "company_name": contact.company_name,
+            "status": contact.status,
+            "tags": contact.tags,
+            "notes": contact.notes,
+        }
+
         # Invalidate CRM caches after creating a contact
         try:
             # Invalidate contacts list cache so new contacts appear immediately
@@ -404,19 +418,7 @@ async def create_contact(
         except Exception:
             logger.exception("Failed to invalidate cache after contact creation")
 
-        return {
-            "id": contact.id,
-            "user_id": contact.user_id,
-            "workspace_id": str(contact.workspace_id) if contact.workspace_id else None,
-            "first_name": contact.first_name,
-            "last_name": contact.last_name,
-            "email": contact.email,
-            "phone_number": contact.phone_number,
-            "company_name": contact.company_name,
-            "status": contact.status,
-            "tags": contact.tags,
-            "notes": contact.notes,
-        }
+        return response_data
     except IntegrityError as e:
         await db.rollback()
         logger.warning(

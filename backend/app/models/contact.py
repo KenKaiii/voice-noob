@@ -50,8 +50,8 @@ class Contact(Base, TimestampMixin):
     # Tags as comma-separated values (simple approach)
     tags: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    # Notes
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True, deferred=True)
+    # Notes (removed deferred=True to avoid async SQLite issues with lazy loading)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     workspace: Mapped["Workspace | None"] = relationship("Workspace", back_populates="contacts")

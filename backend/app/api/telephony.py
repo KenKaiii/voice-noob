@@ -317,7 +317,9 @@ async def purchase_phone_number(
     Returns:
         Purchased phone number details
     """
-    log = logger.bind(user_id=current_user.id, provider=purchase_request.provider, workspace_id=workspace_id)
+    log = logger.bind(
+        user_id=current_user.id, provider=purchase_request.provider, workspace_id=workspace_id
+    )
     log.info("purchasing_phone_number", phone_number=purchase_request.phone_number)
 
     # Parse workspace_id
@@ -442,7 +444,9 @@ async def initiate_call(
     Returns:
         Call details
     """
-    log = logger.bind(user_id=current_user.id, agent_id=call_request.agent_id, workspace_id=workspace_id)
+    log = logger.bind(
+        user_id=current_user.id, agent_id=call_request.agent_id, workspace_id=workspace_id
+    )
     log.info("initiating_call", to=call_request.to_number, from_=call_request.from_number)
 
     # Parse workspace_id
