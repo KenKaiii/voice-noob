@@ -87,6 +87,8 @@ export interface CreateAgentRequest {
   enable_recording: boolean;
   enable_transcript: boolean;
   initial_greeting?: string;
+  temperature?: number;
+  max_tokens?: number;
 }
 
 /**

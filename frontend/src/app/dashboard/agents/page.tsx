@@ -263,12 +263,21 @@ export default function AgentsPage() {
               </SelectContent>
             </Select>
           )}
-          <Button size="sm" asChild>
-            <Link href="/dashboard/agents/create-agent">
-              <Plus className="mr-2 h-4 w-4" />
-              Create Agent
-            </Link>
-          </Button>
+          {workspaces.length > 0 ? (
+            <Button size="sm" asChild>
+              <Link href="/dashboard/agents/create-agent">
+                <Plus className="mr-2 h-4 w-4" />
+                Create Agent
+              </Link>
+            </Button>
+          ) : (
+            <Button size="sm" asChild>
+              <Link href="/dashboard/workspaces">
+                <Plus className="mr-2 h-4 w-4" />
+                Create Workspace
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -297,14 +306,25 @@ export default function AgentsPage() {
             <Bot className="mb-4 h-16 w-16 text-muted-foreground/50" />
             <h3 className="mb-2 text-lg font-semibold">No voice agents yet</h3>
             <p className="mb-4 max-w-sm text-center text-sm text-muted-foreground">
-              Create your first voice agent to handle inbound and outbound calls with AI
+              {workspaces.length === 0
+                ? "Create a workspace first, then create your voice agent"
+                : "Create your first voice agent to handle inbound and outbound calls with AI"}
             </p>
-            <Button size="sm" asChild>
-              <Link href="/dashboard/agents/create-agent">
-                <Plus className="mr-2 h-4 w-4" />
-                Create Your First Agent
-              </Link>
-            </Button>
+            {workspaces.length > 0 ? (
+              <Button size="sm" asChild>
+                <Link href="/dashboard/agents/create-agent">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Your First Agent
+                </Link>
+              </Button>
+            ) : (
+              <Button size="sm" asChild>
+                <Link href="/dashboard/workspaces">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Workspace
+                </Link>
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (

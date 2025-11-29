@@ -28,7 +28,7 @@ export default function RootLayout({
   );
 
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <title>Voice Noob</title>
         <meta name="description" content="AI-powered voice agent platform" />

@@ -94,12 +94,21 @@ export default function DashboardPage() {
           <h1 className="text-xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted-foreground">Overview of your voice agent platform</p>
         </div>
-        <Button size="sm" asChild>
-          <Link href="/dashboard/agents/create-agent">
-            <Plus className="mr-2 h-4 w-4" />
-            Create Agent
-          </Link>
-        </Button>
+        {workspaces.length > 0 ? (
+          <Button size="sm" asChild>
+            <Link href="/dashboard/agents/create-agent">
+              <Plus className="mr-2 h-4 w-4" />
+              Create Agent
+            </Link>
+          </Button>
+        ) : (
+          <Button size="sm" asChild>
+            <Link href="/dashboard/workspaces">
+              <Plus className="mr-2 h-4 w-4" />
+              Create Workspace
+            </Link>
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards - Compact style like other pages */}
@@ -244,18 +253,35 @@ export default function DashboardPage() {
           <CardContent className="p-4">
             <h3 className="mb-4 text-sm font-medium">Quick Actions</h3>
             <div className="space-y-2">
-              <Link
-                href="/dashboard/agents/create-agent"
-                className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent"
-              >
-                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
-                  <Bot className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Create Agent</p>
-                  <p className="text-xs text-muted-foreground">Configure a new voice agent</p>
-                </div>
-              </Link>
+              {workspaces.length > 0 ? (
+                <Link
+                  href="/dashboard/agents/create-agent"
+                  className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent"
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
+                    <Bot className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Create Agent</p>
+                    <p className="text-xs text-muted-foreground">Configure a new voice agent</p>
+                  </div>
+                </Link>
+              ) : (
+                <Link
+                  href="/dashboard/workspaces"
+                  className="flex items-center gap-3 rounded-lg border border-dashed p-3 transition-colors hover:bg-accent"
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+                    <Bot className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Create Workspace First
+                    </p>
+                    <p className="text-xs text-muted-foreground">Required before creating agents</p>
+                  </div>
+                </Link>
+              )}
               <Link
                 href="/dashboard/phone-numbers"
                 className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent"

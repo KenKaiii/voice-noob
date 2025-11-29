@@ -490,7 +490,6 @@ async def get_embed_ephemeral_token(  # noqa: PLR0915
 
     from app.api.settings import get_user_api_keys
     from app.core.auth import get_user_id_from_uuid, user_id_to_uuid
-    from app.core.config import settings
     from app.models.workspace import AgentWorkspace
     from app.services.gpt_realtime import build_instructions_with_language
 
@@ -537,18 +536,15 @@ async def get_embed_ephemeral_token(  # noqa: PLR0915
         user_uuid, db, workspace_id=agent_workspace.workspace_id
     )
 
-    api_key = None
-    if user_settings and user_settings.openai_api_key:
-        api_key = user_settings.openai_api_key
-        log.info("using_workspace_openai_key")
-    elif settings.OPENAI_API_KEY:
-        api_key = settings.OPENAI_API_KEY
-        log.info("using_global_openai_key")
-    else:
+    # Strictly use workspace API key - no fallback to global key for billing isolation
+    if not user_settings or not user_settings.openai_api_key:
+        log.warning("workspace_missing_openai_key", workspace_id=str(agent_workspace.workspace_id))
         raise HTTPException(
-            status_code=500,
-            detail="OpenAI API key not configured for this workspace",
+            status_code=400,
+            detail="OpenAI API key not configured for this workspace. Please add it in Settings > Workspace API Keys.",
         )
+    api_key = user_settings.openai_api_key
+    log.info("using_workspace_openai_key")
 
     # Determine model based on tier
     realtime_model = (

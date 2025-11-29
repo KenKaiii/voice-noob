@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.integrations import get_workspace_integrations
 from app.api.settings import get_user_api_keys
 from app.core.auth import user_id_to_uuid
-from app.core.config import settings
 from app.services.tools.registry import ToolRegistry
 
 logger = structlog.get_logger()
@@ -157,19 +156,14 @@ class GPTRealtimeSession:
             self.user_id_uuid, self.db, workspace_id=self.workspace_id
         )
 
-        # Determine which API key to use (user settings or global config)
-        api_key = None
-        if user_settings and user_settings.openai_api_key:
-            api_key = user_settings.openai_api_key
-            self.logger.info("using_workspace_openai_key")
-        elif settings.OPENAI_API_KEY:
-            # Global platform key as fallback (for platform-owned agents only)
-            api_key = settings.OPENAI_API_KEY
-            self.logger.info("using_global_openai_key")
-        else:
+        # Strictly use workspace API key - no fallback to global key for billing isolation
+        if not user_settings or not user_settings.openai_api_key:
+            self.logger.warning("workspace_missing_openai_key", workspace_id=str(self.workspace_id))
             raise ValueError(
-                "OpenAI API key not configured for this workspace. Please add it in Settings."
+                "OpenAI API key not configured for this workspace. Please add it in Settings > Workspace API Keys."
             )
+        api_key = user_settings.openai_api_key
+        self.logger.info("using_workspace_openai_key")
 
         # Initialize OpenAI client with user's or global API key
         self.client = AsyncOpenAI(api_key=api_key)

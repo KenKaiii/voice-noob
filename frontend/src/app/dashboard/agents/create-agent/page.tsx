@@ -6,9 +6,10 @@ import { useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { createAgent, type CreateAgentRequest } from "@/lib/api/agents";
+import { api } from "@/lib/api";
 import { AVAILABLE_INTEGRATIONS } from "@/lib/integrations";
 import { getLanguagesForTier, getFallbackLanguage } from "@/lib/languages";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { PRICING_TIERS } from "@/lib/pricing-tiers";
 import {
@@ -50,6 +52,7 @@ import {
   Settings,
   Play,
   Wand2,
+  FolderOpen,
 } from "lucide-react";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { cn } from "@/lib/utils";
@@ -147,6 +150,13 @@ function getRiskLevelBadge(level: "safe" | "moderate" | "high") {
   }
 }
 
+interface Workspace {
+  id: string;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+}
+
 const WIZARD_STEPS = [
   { id: 1, label: "Pricing", icon: Sparkles },
   { id: 2, label: "Basics", icon: Bot },
@@ -156,17 +166,21 @@ const WIZARD_STEPS = [
 ] as const;
 
 const agentFormSchema = z.object({
-  pricingTier: z.enum(["budget", "balanced", "premium-mini", "premium"]).default("balanced"),
+  pricingTier: z.enum(["budget", "balanced", "premium-mini", "premium"]).default("premium"),
   name: z.string().min(2, "Name must be at least 2 characters"),
   description: z.string().optional(),
   language: z.string().default("en-US"),
   voice: z.string().default("marin"), // marin is the most natural & professional voice
   systemPrompt: z.string().min(10, "System prompt is required"),
+  initialGreeting: z.string().optional(),
+  temperature: z.number().min(0).max(2).default(0.7),
+  maxTokens: z.number().min(100).max(16000).default(2000),
   enabledTools: z.array(z.string()).default([]),
   enabledToolIds: z.record(z.string(), z.array(z.string())).default({}),
   phoneNumberId: z.string().optional(),
   enableRecording: z.boolean().default(true),
   enableTranscript: z.boolean().default(true),
+  selectedWorkspaces: z.array(z.string()).default([]),
 });
 
 type AgentFormValues = z.infer<typeof agentFormSchema>;
@@ -181,19 +195,24 @@ export default function CreateAgentPage() {
       name: "",
       description: "",
       systemPrompt: "",
-      pricingTier: "balanced",
+      initialGreeting: "",
+      pricingTier: "premium",
       language: "en-US",
       voice: "marin",
+      temperature: 0.7,
+      maxTokens: 2000,
       enabledTools: [],
       enabledToolIds: {},
       phoneNumberId: "",
       enableRecording: true,
       enableTranscript: true,
+      selectedWorkspaces: [],
     },
   });
 
   const pricingTier = useWatch({ control: form.control, name: "pricingTier" });
   const enabledTools = useWatch({ control: form.control, name: "enabledTools" });
+  const enabledToolIds = useWatch({ control: form.control, name: "enabledToolIds" });
   const agentName = useWatch({ control: form.control, name: "name" });
   const systemPrompt = useWatch({ control: form.control, name: "systemPrompt" });
   const currentLanguage = useWatch({ control: form.control, name: "language" });
@@ -205,6 +224,15 @@ export default function CreateAgentPage() {
 
   // Get available languages for the current pricing tier
   const availableLanguages = useMemo(() => getLanguagesForTier(pricingTier), [pricingTier]);
+
+  // Fetch all workspaces
+  const { data: workspaces = [] } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: async () => {
+      const response = await api.get<Workspace[]>("/api/v1/workspaces");
+      return response.data;
+    },
+  });
 
   // Reset language to fallback if current selection is not valid for new tier
   useEffect(() => {
@@ -225,7 +253,7 @@ export default function CreateAgentPage() {
     },
   });
 
-  function onSubmit(data: AgentFormValues) {
+  async function onSubmit(data: AgentFormValues) {
     // Derive enabled_tools (integration IDs) from enabledToolIds
     // An integration is enabled if it has at least one tool selected
     const enabledIntegrations = Object.entries(data.enabledToolIds)
@@ -237,6 +265,7 @@ export default function CreateAgentPage() {
       description: data.description,
       pricing_tier: data.pricingTier,
       system_prompt: data.systemPrompt,
+      initial_greeting: data.initialGreeting?.trim() ? data.initialGreeting.trim() : undefined,
       language: data.language,
       voice:
         data.pricingTier === "premium" || data.pricingTier === "premium-mini"
@@ -247,14 +276,41 @@ export default function CreateAgentPage() {
       phone_number_id: data.phoneNumberId,
       enable_recording: data.enableRecording,
       enable_transcript: data.enableTranscript,
+      temperature: data.temperature,
+      max_tokens: data.maxTokens,
     };
-    createAgentMutation.mutate(request);
+
+    try {
+      const agent = await createAgentMutation.mutateAsync(request);
+
+      // Assign workspaces if any selected
+      if (data.selectedWorkspaces.length > 0) {
+        await api.put(`/api/v1/workspaces/agent/${agent.id}/workspaces`, {
+          workspace_ids: data.selectedWorkspaces,
+        });
+      }
+    } catch {
+      // Error handling is done in mutation callbacks
+    }
   }
 
   const validateStep = async (currentStep: number): Promise<boolean> => {
     switch (currentStep) {
-      case 1:
-        return true; // Pricing tier always has a default
+      case 1: {
+        // Check if workspaces exist - required before creating agents
+        if (workspaces.length === 0) {
+          toast.error("Please create a workspace first before creating an agent");
+          return false;
+        }
+        // Check if a valid (non-under-construction) tier is selected
+        const selectedTierId = form.getValues("pricingTier");
+        const tier = PRICING_TIERS.find((t) => t.id === selectedTierId);
+        if (!tier || tier.underConstruction) {
+          toast.error("Please select an available pricing tier");
+          return false;
+        }
+        return true;
+      }
       case 2:
         return form.trigger("name");
       case 3:
@@ -296,6 +352,22 @@ export default function CreateAgentPage() {
 
   return (
     <div className="space-y-4">
+      {/* No workspaces warning */}
+      {workspaces.length === 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
+          <div className="flex-1">
+            <p className="text-sm font-medium">Workspace Required</p>
+            <p className="text-xs text-muted-foreground">
+              You need to create a workspace before you can create a voice agent.
+            </p>
+          </div>
+          <Button size="sm" asChild>
+            <Link href="/dashboard/workspaces">Create Workspace</Link>
+          </Button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
@@ -417,7 +489,9 @@ export default function CreateAgentPage() {
       <Form {...form}>
         <form
           onSubmit={(e) => {
-            void form.handleSubmit(onSubmit)(e);
+            e.preventDefault();
+            // Form submission is handled by the Create Agent button's onClick
+            // This prevents any accidental submissions from Enter key, etc.
           }}
         >
           {/* Step 1: Pricing Tier */}
@@ -440,15 +514,22 @@ export default function CreateAgentPage() {
                       <button
                         key={tier.id}
                         type="button"
+                        disabled={tier.underConstruction}
                         onClick={() =>
+                          !tier.underConstruction &&
                           form.setValue(
                             "pricingTier",
                             tier.id as "budget" | "balanced" | "premium-mini" | "premium"
                           )
                         }
                         className={cn(
-                          "relative flex flex-col rounded-lg border p-4 text-left transition-all hover:border-primary/50",
-                          isSelected && "border-primary bg-primary/5 ring-2 ring-primary"
+                          "relative flex flex-col rounded-lg border p-4 text-left transition-all",
+                          tier.underConstruction
+                            ? "cursor-not-allowed opacity-60"
+                            : "hover:border-primary/50",
+                          isSelected &&
+                            !tier.underConstruction &&
+                            "border-primary bg-primary/5 ring-2 ring-primary"
                         )}
                       >
                         {tier.recommended && (
@@ -464,7 +545,14 @@ export default function CreateAgentPage() {
                             <TierIcon className="h-4 w-4" />
                           </div>
                           <div>
-                            <div className="font-medium">{tier.name}</div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{tier.name}</span>
+                              {tier.underConstruction && (
+                                <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
+                                  Coming Soon
+                                </Badge>
+                              )}
+                            </div>
                             <div className="text-xs text-muted-foreground">
                               ${tier.costPerHour.toFixed(2)}/hr
                             </div>
@@ -591,6 +679,75 @@ export default function CreateAgentPage() {
                     />
                   )}
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name="selectedWorkspaces"
+                  render={() => (
+                    <FormItem>
+                      <div className="mb-4">
+                        <FormLabel className="flex items-center gap-2 text-base">
+                          <FolderOpen className="h-4 w-4" />
+                          Workspaces
+                        </FormLabel>
+                        <FormDescription>
+                          Assign this agent to workspaces. CRM contacts and appointments in these
+                          workspaces will be accessible to this agent.
+                        </FormDescription>
+                      </div>
+                      {workspaces.length === 0 ? (
+                        <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                          No workspaces created yet.{" "}
+                          <Link href="/dashboard/workspaces" className="text-primary underline">
+                            Create a workspace
+                          </Link>{" "}
+                          to organize your contacts and appointments.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {workspaces.map((workspace) => (
+                            <FormField
+                              key={workspace.id}
+                              control={form.control}
+                              name="selectedWorkspaces"
+                              render={({ field }) => (
+                                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(workspace.id)}
+                                      onCheckedChange={(checked: boolean) => {
+                                        const current = field.value ?? [];
+                                        field.onChange(
+                                          checked
+                                            ? [...current, workspace.id]
+                                            : current.filter((v) => v !== workspace.id)
+                                        );
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <div className="space-y-1 leading-none">
+                                    <FormLabel className="cursor-pointer font-medium">
+                                      {workspace.name}
+                                      {workspace.is_default && (
+                                        <Badge variant="secondary" className="ml-2">
+                                          Default
+                                        </Badge>
+                                      )}
+                                    </FormLabel>
+                                    {workspace.description && (
+                                      <FormDescription>{workspace.description}</FormDescription>
+                                    )}
+                                  </div>
+                                </FormItem>
+                              )}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </CardContent>
             </Card>
           )}
@@ -670,6 +827,27 @@ Guidelines:
                     );
                   }}
                 />
+
+                <FormField
+                  control={form.control}
+                  name="initialGreeting"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Initial Greeting (Optional)</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Hello! Thank you for calling. How can I help you today?"
+                          className="min-h-[80px]"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        What the agent says when the call starts. Leave empty for a natural start.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </CardContent>
             </Card>
           )}
@@ -716,10 +894,14 @@ Guidelines:
                                         if (defaultTools.length > 0) {
                                           const currentToolIds =
                                             form.getValues("enabledToolIds") ?? {};
-                                          form.setValue("enabledToolIds", {
-                                            ...currentToolIds,
-                                            [integration.id]: defaultTools,
-                                          });
+                                          form.setValue(
+                                            "enabledToolIds",
+                                            {
+                                              ...currentToolIds,
+                                              [integration.id]: defaultTools,
+                                            },
+                                            { shouldDirty: true }
+                                          );
                                         }
                                       } else {
                                         field.onChange(current.filter((v) => v !== integration.id));
@@ -728,7 +910,9 @@ Guidelines:
                                           form.getValues("enabledToolIds") ?? {};
                                         const { [integration.id]: _removed, ...rest } =
                                           currentToolIds;
-                                        form.setValue("enabledToolIds", rest);
+                                        form.setValue("enabledToolIds", rest, {
+                                          shouldDirty: true,
+                                        });
                                       }
                                     }}
                                   />
@@ -748,12 +932,11 @@ Guidelines:
                                 </div>
                                 {isEnabled && integration.tools && integration.tools.length > 0 && (
                                   <CollapsibleTrigger asChild>
-                                    <Button variant="ghost" size="sm">
+                                    <Button type="button" variant="ghost" size="sm">
                                       <ChevronDown className="h-4 w-4" />
                                       <span className="ml-1">
-                                        {form.watch(`enabledToolIds.${integration.id}`)?.length ??
-                                          0}{" "}
-                                        / {integration.tools.length} tools
+                                        {enabledToolIds?.[integration.id]?.length ?? 0} /{" "}
+                                        {integration.tools.length} tools
                                       </span>
                                     </Button>
                                   </CollapsibleTrigger>
@@ -775,10 +958,14 @@ Guidelines:
                                               integration.tools?.map((t) => t.id) ?? [];
                                             const currentToolIds =
                                               form.getValues("enabledToolIds") ?? {};
-                                            form.setValue("enabledToolIds", {
-                                              ...currentToolIds,
-                                              [integration.id]: allToolIds,
-                                            });
+                                            form.setValue(
+                                              "enabledToolIds",
+                                              {
+                                                ...currentToolIds,
+                                                [integration.id]: allToolIds,
+                                              },
+                                              { shouldDirty: true }
+                                            );
                                           }}
                                         >
                                           Select All
@@ -790,10 +977,14 @@ Guidelines:
                                           onClick={() => {
                                             const currentToolIds =
                                               form.getValues("enabledToolIds") ?? {};
-                                            form.setValue("enabledToolIds", {
-                                              ...currentToolIds,
-                                              [integration.id]: [],
-                                            });
+                                            form.setValue(
+                                              "enabledToolIds",
+                                              {
+                                                ...currentToolIds,
+                                                [integration.id]: [],
+                                              },
+                                              { shouldDirty: true }
+                                            );
                                           }}
                                         >
                                           Clear All
@@ -804,8 +995,7 @@ Guidelines:
                                       {integration.tools.map((tool) => {
                                         const riskBadge = getRiskLevelBadge(tool.riskLevel);
                                         const RiskIcon = riskBadge.icon;
-                                        const currentTools =
-                                          form.watch(`enabledToolIds.${integration.id}`) ?? [];
+                                        const currentTools = enabledToolIds?.[integration.id] ?? [];
                                         const isToolEnabled = currentTools.includes(tool.id);
                                         return (
                                           <div
@@ -825,10 +1015,14 @@ Guidelines:
                                                     : toolsForIntegration.filter(
                                                         (t) => t !== tool.id
                                                       );
-                                                  form.setValue("enabledToolIds", {
-                                                    ...enabledToolIds,
-                                                    [integration.id]: newTools,
-                                                  });
+                                                  form.setValue(
+                                                    "enabledToolIds",
+                                                    {
+                                                      ...enabledToolIds,
+                                                      [integration.id]: newTools,
+                                                    },
+                                                    { shouldDirty: true }
+                                                  );
                                                 }}
                                               />
                                               <div>
@@ -867,7 +1061,7 @@ Guidelines:
                         Connect Google Calendar, Salesforce, HubSpot and more
                       </p>
                     </div>
-                    <Button variant="outline" size="sm" asChild>
+                    <Button type="button" variant="outline" size="sm" asChild>
                       <Link href="/dashboard/integrations" target="_blank">
                         Manage Integrations
                       </Link>
@@ -925,6 +1119,98 @@ Guidelines:
                       </FormItem>
                     )}
                   />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="space-y-4 p-6">
+                  <div className="mb-2">
+                    <h2 className="text-lg font-medium">AI Settings</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Fine-tune the AI response behavior
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="temperature"
+                      render={({ field }) => {
+                        const getTemperatureLabel = (value: number) => {
+                          if (value <= 0.3) return "Focused";
+                          if (value <= 0.7) return "Balanced";
+                          if (value <= 1.2) return "Creative";
+                          return "Very Creative";
+                        };
+                        return (
+                          <FormItem>
+                            <div className="flex items-center justify-between">
+                              <FormLabel className="flex items-center gap-1.5">
+                                Temperature
+                                <InfoTooltip content="Controls randomness in responses. Lower (0-0.3) = precise, consistent answers. Higher (0.8-2.0) = more creative, varied responses. 0.7 is a good default for conversations." />
+                              </FormLabel>
+                              <span className="text-sm font-medium">
+                                {field.value?.toFixed(1) ?? "0.7"} (
+                                {getTemperatureLabel(field.value ?? 0.7)})
+                              </span>
+                            </div>
+                            <FormControl>
+                              <div className="space-y-2">
+                                <Slider
+                                  min={0}
+                                  max={2}
+                                  step={0.1}
+                                  value={[field.value ?? 0.7]}
+                                  onValueChange={(value) => field.onChange(value[0])}
+                                  className="w-full"
+                                />
+                                <div className="flex justify-between text-xs text-muted-foreground">
+                                  <span>Focused</span>
+                                  <span>Creative</span>
+                                </div>
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        );
+                      }}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="maxTokens"
+                      render={({ field }) => (
+                        <FormItem>
+                          <div className="flex items-center justify-between">
+                            <FormLabel className="flex items-center gap-1.5">
+                              Max Tokens
+                              <InfoTooltip content="Maximum response length in tokens (1 token ≈ 4 characters). Higher values allow longer responses but cost more. 1000-2000 is recommended for conversations." />
+                            </FormLabel>
+                            <span className="text-sm font-medium">
+                              {(field.value ?? 2000).toLocaleString()}
+                            </span>
+                          </div>
+                          <FormControl>
+                            <div className="space-y-2">
+                              <Slider
+                                min={100}
+                                max={4000}
+                                step={100}
+                                value={[field.value ?? 2000]}
+                                onValueChange={(value) => field.onChange(value[0])}
+                                className="w-full"
+                              />
+                              <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>100</span>
+                                <span>4,000</span>
+                              </div>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                 </CardContent>
               </Card>
 
@@ -997,7 +1283,12 @@ Guidelines:
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             ) : (
-              <Button type="submit" size="sm" disabled={createAgentMutation.isPending}>
+              <Button
+                type="button"
+                size="sm"
+                disabled={createAgentMutation.isPending}
+                onClick={() => void form.handleSubmit(onSubmit)()}
+              >
                 <Play className="mr-2 h-4 w-4" />
                 {createAgentMutation.isPending ? "Creating..." : "Create Agent"}
               </Button>

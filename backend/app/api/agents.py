@@ -26,7 +26,7 @@ class CreateAgentRequest(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=200)
     description: str | None = None
-    pricing_tier: str = Field(..., pattern="^(budget|balanced|premium)$")
+    pricing_tier: str = Field(..., pattern="^(budget|balanced|premium-mini|premium)$")
     system_prompt: str = Field(..., min_length=10)
     language: str = Field(default="en-US")
     voice: str = Field(default="shimmer")
@@ -58,7 +58,7 @@ class UpdateAgentRequest(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=200)
     description: str | None = None
-    pricing_tier: str | None = Field(None, pattern="^(budget|balanced|premium)$")
+    pricing_tier: str | None = Field(None, pattern="^(budget|balanced|premium-mini|premium)$")
     system_prompt: str | None = Field(None, min_length=10)
     language: str | None = None
     voice: str | None = None
