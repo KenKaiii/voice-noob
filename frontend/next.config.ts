@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Enable standalone output for Docker deployment
+  output: "standalone",
   images: {
     remotePatterns: [
       {
