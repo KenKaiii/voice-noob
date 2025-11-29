@@ -206,6 +206,7 @@ omit = ["*/tests/*", "*/migrations/*"]
 
 [dependency-groups]
 dev = [
+    "fakeredis>=2.32.1",
     "mypy>=1.18.2",
     "ruff>=0.14.6",
     "types-passlib>=1.7.7.20250602",

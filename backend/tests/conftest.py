@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from fakeredis import aioredis as fakeredis
+import fakeredis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -101,7 +101,7 @@ async def test_session(test_engine: Any) -> AsyncGenerator[AsyncSession, None]:
 @pytest_asyncio.fixture(scope="function")
 async def test_redis() -> AsyncGenerator[Any, None]:
     """Create fake Redis client for testing."""
-    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    redis_client = fakeredis.FakeAsyncRedis(decode_responses=True)
     yield redis_client
     await redis_client.flushall()
     await redis_client.aclose()

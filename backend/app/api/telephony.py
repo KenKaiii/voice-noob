@@ -299,8 +299,8 @@ async def search_phone_numbers(
 @router.post("/phone-numbers/purchase", response_model=PhoneNumberResponse)
 @limiter.limit("5/minute")  # Strict rate limit for phone number purchases (costs money!)
 async def purchase_phone_number(
-    request: PurchasePhoneNumberRequest,
-    http_request: Request,
+    purchase_request: PurchasePhoneNumberRequest,
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     workspace_id: str = Query(..., description="Workspace ID for API key isolation"),
@@ -308,7 +308,8 @@ async def purchase_phone_number(
     """Purchase a phone number.
 
     Args:
-        request: Purchase request with provider and phone number
+        purchase_request: Purchase request with provider and phone number
+        request: HTTP request (for rate limiting)
         current_user: Authenticated user
         db: Database session
         workspace_id: Workspace ID for workspace-specific API keys
@@ -316,8 +317,8 @@ async def purchase_phone_number(
     Returns:
         Purchased phone number details
     """
-    log = logger.bind(user_id=current_user.id, provider=request.provider, workspace_id=workspace_id)
-    log.info("purchasing_phone_number", phone_number=request.phone_number)
+    log = logger.bind(user_id=current_user.id, provider=purchase_request.provider, workspace_id=workspace_id)
+    log.info("purchasing_phone_number", phone_number=purchase_request.phone_number)
 
     # Parse workspace_id
     try:
@@ -327,23 +328,23 @@ async def purchase_phone_number(
 
     number: PhoneNumber
 
-    if request.provider == "twilio":
+    if purchase_request.provider == "twilio":
         twilio_service = await get_twilio_service(current_user.id, db, workspace_id=workspace_uuid)
         if not twilio_service:
             raise HTTPException(
                 status_code=400,
                 detail="Twilio credentials not configured. Please add them in Settings.",
             )
-        number = await twilio_service.purchase_phone_number(request.phone_number)
+        number = await twilio_service.purchase_phone_number(purchase_request.phone_number)
 
-    elif request.provider == "telnyx":
+    elif purchase_request.provider == "telnyx":
         telnyx_service = await get_telnyx_service(current_user.id, db, workspace_id=workspace_uuid)
         if not telnyx_service:
             raise HTTPException(
                 status_code=400,
                 detail="Telnyx credentials not configured. Please add them in Settings.",
             )
-        number = await telnyx_service.purchase_phone_number(request.phone_number)
+        number = await telnyx_service.purchase_phone_number(purchase_request.phone_number)
 
     else:
         raise HTTPException(status_code=400, detail="Invalid provider. Use 'twilio' or 'telnyx'.")
@@ -423,8 +424,8 @@ async def release_phone_number(
 @router.post("/calls", response_model=CallResponse)
 @limiter.limit("30/minute")  # Rate limit outbound call initiation (costs money!)
 async def initiate_call(
-    request: InitiateCallRequest,
-    http_request: Request,
+    call_request: InitiateCallRequest,
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     workspace_id: str = Query(..., description="Workspace ID for API key isolation"),
@@ -432,8 +433,8 @@ async def initiate_call(
     """Initiate an outbound call.
 
     Args:
-        request: Call initiation request
-        http_request: HTTP request for building webhook URLs
+        call_request: Call initiation request
+        request: HTTP request (for rate limiting and building webhook URLs)
         current_user: Authenticated user
         db: Database session
         workspace_id: Workspace ID for workspace-specific API keys
@@ -441,8 +442,8 @@ async def initiate_call(
     Returns:
         Call details
     """
-    log = logger.bind(user_id=current_user.id, agent_id=request.agent_id, workspace_id=workspace_id)
-    log.info("initiating_call", to=request.to_number, from_=request.from_number)
+    log = logger.bind(user_id=current_user.id, agent_id=call_request.agent_id, workspace_id=workspace_id)
+    log.info("initiating_call", to=call_request.to_number, from_=call_request.from_number)
 
     # Parse workspace_id
     try:
@@ -451,7 +452,7 @@ async def initiate_call(
         raise HTTPException(status_code=400, detail="Invalid workspace_id format") from e
 
     # Load agent to get provider preference
-    result = await db.execute(select(Agent).where(Agent.id == uuid.UUID(request.agent_id)))
+    result = await db.execute(select(Agent).where(Agent.id == uuid.UUID(call_request.agent_id)))
     agent = result.scalar_one_or_none()
 
     if not agent:
@@ -472,24 +473,24 @@ async def initiate_call(
         )
 
     # Build webhook URL
-    base_url = str(http_request.base_url).rstrip("/")
-    webhook_url = f"{base_url}/webhooks/{'telnyx' if telnyx_service else 'twilio'}/answer?agent_id={request.agent_id}"
+    base_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{base_url}/webhooks/{'telnyx' if telnyx_service else 'twilio'}/answer?agent_id={call_request.agent_id}"
 
     if telnyx_service:
         provider = "telnyx"
         call_info = await telnyx_service.initiate_call(
-            to_number=request.to_number,
-            from_number=request.from_number,
+            to_number=call_request.to_number,
+            from_number=call_request.from_number,
             webhook_url=webhook_url,
-            agent_id=request.agent_id,
+            agent_id=call_request.agent_id,
         )
     elif twilio_service:
         provider = "twilio"
         call_info = await twilio_service.initiate_call(
-            to_number=request.to_number,
-            from_number=request.from_number,
+            to_number=call_request.to_number,
+            from_number=call_request.from_number,
             webhook_url=webhook_url,
-            agent_id=request.agent_id,
+            agent_id=call_request.agent_id,
         )
     else:
         raise HTTPException(status_code=500, detail="Failed to initialize telephony service")
@@ -501,11 +502,11 @@ async def initiate_call(
         user_id=user_id_to_uuid(current_user.id),
         provider=provider,
         provider_call_id=call_info.call_id,
-        agent_id=uuid.UUID(request.agent_id),
+        agent_id=uuid.UUID(call_request.agent_id),
         direction=CallDirection.OUTBOUND.value,
         status=CallStatus.INITIATED.value,
-        from_number=request.from_number,
-        to_number=request.to_number,
+        from_number=call_request.from_number,
+        to_number=call_request.to_number,
     )
     db.add(call_record)
     await db.commit()

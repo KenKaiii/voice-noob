@@ -3217,6 +3217,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fakeredis" },
     { name = "mypy" },
     { name = "ruff" },
     { name = "types-passlib" },
@@ -3274,6 +3275,7 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fakeredis", specifier = ">=2.32.1" },
     { name = "mypy", specifier = ">=1.18.2" },
     { name = "ruff", specifier = ">=0.14.6" },
     { name = "types-passlib", specifier = ">=1.7.7.20250602" },

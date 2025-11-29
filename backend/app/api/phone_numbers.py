@@ -248,15 +248,16 @@ async def get_phone_number(
 @router.post("", response_model=PhoneNumberResponse, status_code=201)
 @limiter.limit("10/minute")  # Rate limit phone number creation
 async def create_phone_number(
-    request: CreatePhoneNumberRequest,
-    http_request: Request,
+    create_request: CreatePhoneNumberRequest,
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> PhoneNumberResponse:
     """Register a new phone number.
 
     Args:
-        request: Phone number details
+        create_request: Phone number details
+        request: HTTP request (for rate limiting)
         current_user: Authenticated user
         db: Database session
 
@@ -264,22 +265,22 @@ async def create_phone_number(
         Created phone number
     """
     log = logger.bind(user_id=current_user.id)
-    log.info("creating_phone_number", phone_number=request.phone_number)
+    log.info("creating_phone_number", phone_number=create_request.phone_number)
 
     user_uuid = user_id_to_uuid(current_user.id)
 
     phone_number = PhoneNumber(
         user_id=user_uuid,
-        phone_number=request.phone_number,
-        friendly_name=request.friendly_name,
-        provider=request.provider,
-        provider_id=request.provider_id,
-        workspace_id=uuid.UUID(request.workspace_id) if request.workspace_id else None,
-        can_receive_calls=request.can_receive_calls,
-        can_make_calls=request.can_make_calls,
-        can_receive_sms=request.can_receive_sms,
-        can_send_sms=request.can_send_sms,
-        notes=request.notes,
+        phone_number=create_request.phone_number,
+        friendly_name=create_request.friendly_name,
+        provider=create_request.provider,
+        provider_id=create_request.provider_id,
+        workspace_id=uuid.UUID(create_request.workspace_id) if create_request.workspace_id else None,
+        can_receive_calls=create_request.can_receive_calls,
+        can_make_calls=create_request.can_make_calls,
+        can_receive_sms=create_request.can_receive_sms,
+        can_send_sms=create_request.can_send_sms,
+        notes=create_request.notes,
     )
 
     db.add(phone_number)
@@ -311,8 +312,8 @@ async def create_phone_number(
 @limiter.limit("30/minute")  # Rate limit phone number updates
 async def update_phone_number(
     phone_number_id: str,
-    request: UpdatePhoneNumberRequest,
-    http_request: Request,
+    update_request: UpdatePhoneNumberRequest,
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> PhoneNumberResponse:
@@ -320,7 +321,8 @@ async def update_phone_number(
 
     Args:
         phone_number_id: Phone number ID
-        request: Update details
+        update_request: Update details
+        request: HTTP request (for rate limiting)
         current_user: Authenticated user
         db: Database session
 
@@ -343,20 +345,20 @@ async def update_phone_number(
         raise HTTPException(status_code=404, detail="Phone number not found")
 
     # Update fields
-    if request.friendly_name is not None:
-        phone_number.friendly_name = request.friendly_name
-    if request.workspace_id is not None:
+    if update_request.friendly_name is not None:
+        phone_number.friendly_name = update_request.friendly_name
+    if update_request.workspace_id is not None:
         phone_number.workspace_id = (
-            uuid.UUID(request.workspace_id) if request.workspace_id else None
+            uuid.UUID(update_request.workspace_id) if update_request.workspace_id else None
         )
-    if request.assigned_agent_id is not None:
+    if update_request.assigned_agent_id is not None:
         phone_number.assigned_agent_id = (
-            uuid.UUID(request.assigned_agent_id) if request.assigned_agent_id else None
+            uuid.UUID(update_request.assigned_agent_id) if update_request.assigned_agent_id else None
         )
-    if request.status is not None:
-        phone_number.status = request.status
-    if request.notes is not None:
-        phone_number.notes = request.notes
+    if update_request.status is not None:
+        phone_number.status = update_request.status
+    if update_request.notes is not None:
+        phone_number.notes = update_request.notes
 
     await db.commit()
     await db.refresh(phone_number)
@@ -396,7 +398,7 @@ async def update_phone_number(
 @limiter.limit("10/minute")  # Rate limit phone number deletion
 async def delete_phone_number(
     phone_number_id: str,
-    http_request: Request,
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:

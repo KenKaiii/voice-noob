@@ -109,15 +109,16 @@ class AgentResponse(BaseModel):
 @router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("20/minute")  # Rate limit agent creation
 async def create_agent(
-    request: CreateAgentRequest,
-    http_request: Request,
+    agent_request: CreateAgentRequest,
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> AgentResponse:
     """Create a new voice agent.
 
     Args:
-        request: Agent creation request
+        agent_request: Agent creation request
+        request: HTTP request (for rate limiting)
         current_user: Authenticated user
         db: Database session
 
@@ -125,28 +126,28 @@ async def create_agent(
         Created agent
     """
     # Build provider config based on tier (from pricing-tiers.ts)
-    provider_config = _get_provider_config(request.pricing_tier)
+    provider_config = _get_provider_config(agent_request.pricing_tier)
     user_uuid = user_id_to_uuid(current_user.id)
 
     agent = Agent(
         user_id=user_uuid,
-        name=request.name,
-        description=request.description,
-        pricing_tier=request.pricing_tier,
-        system_prompt=request.system_prompt,
-        language=request.language,
-        voice=request.voice,
-        enabled_tools=request.enabled_tools,
-        enabled_tool_ids=request.enabled_tool_ids,
-        phone_number_id=request.phone_number_id,
-        enable_recording=request.enable_recording,
-        enable_transcript=request.enable_transcript,
-        turn_detection_mode=request.turn_detection_mode,
-        turn_detection_threshold=request.turn_detection_threshold,
-        turn_detection_prefix_padding_ms=request.turn_detection_prefix_padding_ms,
-        turn_detection_silence_duration_ms=request.turn_detection_silence_duration_ms,
-        temperature=request.temperature,
-        max_tokens=request.max_tokens,
+        name=agent_request.name,
+        description=agent_request.description,
+        pricing_tier=agent_request.pricing_tier,
+        system_prompt=agent_request.system_prompt,
+        language=agent_request.language,
+        voice=agent_request.voice,
+        enabled_tools=agent_request.enabled_tools,
+        enabled_tool_ids=agent_request.enabled_tool_ids,
+        phone_number_id=agent_request.phone_number_id,
+        enable_recording=agent_request.enable_recording,
+        enable_transcript=agent_request.enable_transcript,
+        turn_detection_mode=agent_request.turn_detection_mode,
+        turn_detection_threshold=agent_request.turn_detection_threshold,
+        turn_detection_prefix_padding_ms=agent_request.turn_detection_prefix_padding_ms,
+        turn_detection_silence_duration_ms=agent_request.turn_detection_silence_duration_ms,
+        temperature=agent_request.temperature,
+        max_tokens=agent_request.max_tokens,
         provider_config=provider_config,
         is_active=True,
         is_published=False,
@@ -242,7 +243,7 @@ async def get_agent(
 @limiter.limit("30/minute")  # Rate limit agent deletion
 async def delete_agent(
     agent_id: str,
-    http_request: Request,
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
@@ -250,6 +251,7 @@ async def delete_agent(
 
     Args:
         agent_id: Agent UUID
+        request: HTTP request (for rate limiting)
         current_user: Authenticated user
         db: Database session
 
@@ -279,8 +281,8 @@ async def delete_agent(
 @limiter.limit("60/minute")  # Rate limit agent updates
 async def update_agent(
     agent_id: str,
-    request: UpdateAgentRequest,
-    http_request: Request,
+    update_request: UpdateAgentRequest,
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> AgentResponse:
@@ -288,7 +290,8 @@ async def update_agent(
 
     Args:
         agent_id: Agent UUID
-        request: Update request
+        update_request: Update request body
+        request: HTTP request (for rate limiting)
         current_user: Authenticated user
         db: Database session
 
@@ -314,7 +317,7 @@ async def update_agent(
         )
 
     # Apply updates from request
-    _apply_agent_updates(agent, request)
+    _apply_agent_updates(agent, update_request)
 
     await db.commit()
     await db.refresh(agent)
