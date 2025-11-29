@@ -2,6 +2,8 @@
 
 Build AI voice agents that handle phone calls. No PhD required.
 
+Built by [Ken Kai](https://www.youtube.com/@kenkaidoesai) · [Join the community](https://www.skool.com/kenkai/about)
+
 ---
 
 ## What Is This?
