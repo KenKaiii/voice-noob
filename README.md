@@ -2,12 +2,15 @@
 
 Build AI voice agents that handle phone calls. No PhD required.
 
-Built by [Ken Kai](https://www.youtube.com/@kenkaidoesai) · [Join the free community](https://www.skool.com/raid)
+Built by [Ken Kai](https://www.youtube.com/@kenkaidoesai) · [Join the free community](https://www.skool.com/raid) · [Raid+](https://www.skool.com/kenkai) · [kenkais.com](https://www.kenkais.com)
 
 ![Voice Noob](voicenoob.png)
 
 > [!TIP]
-> **Want to build your own apps with AI?** A free 7-day build challenge and 20+ step-by-step projects are in my free community: **[skool.com/raid](https://www.skool.com/raid)**
+> **Want to build your own apps with AI?**
+> - **Free community:** setup guides, a 7-day build challenge and 20+ projects: [skool.com/raid](https://www.skool.com/raid)
+> - **Raid+:** make money with AI, a sellable app in 30 days, live every Thursday: [skool.com/kenkai](https://www.skool.com/kenkai)
+> - **Want it built for you?** [work.kenkais.com](https://work.kenkais.com/)
 
 ---
 
